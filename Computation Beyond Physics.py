@@ -17,41 +17,30 @@ GATE_PARAMS = {
     "OR":  {"lambda": -2.0, "kappa": -2.0, "threshold":  5.0}, 
 }
 
-AMPLITUDE = 5.0  # 残差“振幅”映射到能量的刻度因子
-
-
-# --- 2. 核心结构门（已修复噪声层级） ---
+# --- 2. 核心结构门 ---
 
 def get_gate_result_from_bits(a, b, mode, noise_std=0.0):
     """
-    简化残差模型 (物理一致版):
-
-      1. 先计算“结构振幅” base = λ(a+b) + κ(ab)
-      2. 噪声加在振幅层: base + N(0, noise_std)
-      3. 再取绝对值并放大成“能量刻度”: E_noisy = |base_noisy| * AMPLITUDE
-      4. 与阈值比较得到逻辑输出
-
-    这样更接近“噪声加在 δ(t) 上，再由能量算子感知”的物理图景。
+    简化残差模型:
+      E_total ~ | λ (a + b) A + κ (a b) A |
+    其中 A 是脉冲幅度，噪声加在 E_total 上，然后与阈值比较。
     """
+    AMPLITUDE = 5.0
     params = GATE_PARAMS[mode]
     lambd = params['lambda']
     kappa = params['kappa']
     
-    # 1. 结构振幅（对应理想残差强度）
-    base = lambd * (a + b) + kappa * (a * b)
+    E_sum  = lambd * (a + b) * AMPLITUDE
+    E_prod = kappa * (a * b) * AMPLITUDE
+    E_total = abs(E_sum + E_prod)
 
-    # 2. 噪声加在“振幅层”（而不是直接加在能量上）
-    base_noisy = base + np.random.normal(0, noise_std)
-
-    # 3. 映射到“能量刻度”
-    E_noisy = abs(base_noisy) * AMPLITUDE
+    # 加噪声；负值不影响逻辑，因为 threshold>0
+    E_noisy = E_total + np.random.normal(0, noise_std)
     
-    # 4. 阈值判决
     threshold = params['threshold']
     logic_output = 1 if E_noisy > threshold else 0
     
     return logic_output, E_noisy
-
 
 # --- 3. Half-Adder / Full-Adder 逻辑 ---
 
@@ -77,7 +66,6 @@ def structure_full_adder_logic(a, b, cin, noise_std=0.0):
     # OR 组合进位
     Cout_out, E_cout = get_gate_result_from_bits(C1_out, C2_out, "OR", noise_std)
     return S_out, Cout_out, E_s1, E_c1, E_sum, E_c2, E_cout
-
 
 # --- 4. N-bit 行波进位加法器 (MSB-first bit 序) ---
 
@@ -105,10 +93,8 @@ def structure_ripple_carry_adder(bits_A, bits_B, noise_std=0.0):
 
     return Sum_bits, Carry_out
 
-
 def bits_to_int(bits):
     return int("".join(map(str, bits)), 2)
-
 
 # --- 5. 验证工具 ---
 
@@ -171,7 +157,6 @@ def noise_sweep_for_7_plus_9():
                 success += 1
         print(f"  Noise={noise:.2f}: {success}/{trials} success ({success/trials*100:.1f}%)")
 
-
 # --- 6. 主流程：里程碑 4 测试 ---
 
 if __name__ == "__main__":
@@ -219,3 +204,4 @@ if __name__ == "__main__":
 
     # 6.5 噪声扫描统计
     noise_sweep_for_7_plus_9()
+
