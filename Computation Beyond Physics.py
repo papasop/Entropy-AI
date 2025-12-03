@@ -1,207 +1,281 @@
-import numpy as np
+# ===============================
+# Residual VM / Mini CPU for Colab
+# ===============================
 
-# --- 结构 Full-Adder 仿真 ---
-# 里程碑 4: 可扩展性 (N-bit Ripple-Carry Adder)
+from dataclasses import dataclass
+from typing import List, Dict, Tuple, Union
 
-# === 1. 结构逻辑门参数 (简化残差模型) ===
-GATE_PARAMS = {
-    # XOR: E(0,0)=0, E(0,1)=E(1,0)=5, E(1,1)=0 → 阈值 2.0
-    "XOR": {"lambda": -1.0, "kappa":  2.0, "threshold":  2.0}, 
+# 寄存器数量 & 内存大小
+NUM_REGS = 8
+MEM_SIZE = 256
 
-    # AND: E(0,0)=0, E(0,1)=E(1,0)=10, E(1,1)=30
-    # 要求: 只有 (1,1) 输出 1 → 10 < T < 30
-    "AND": {"lambda": -2.0, "kappa": -2.0, "threshold": 20.0},
+@dataclass
+class VMState:
+    regs: List[int]
+    mem: List[int]
+    flags: Dict[str, bool]
+    pc: int = 0
+    steps: int = 0
+    halted: bool = False
 
-    # OR: 同样的能量簇，但要求: (0,0)=0，其余为 1 → 0 < T < 10
-    # 取 T=5.0，离 0 有 margin=5，抗噪性更好。
-    "OR":  {"lambda": -2.0, "kappa": -2.0, "threshold":  5.0}, 
-}
+def make_vm() -> VMState:
+    return VMState(
+        regs=[0]*NUM_REGS,
+        mem=[0]*MEM_SIZE,
+        flags={"EQ": False, "LT": False, "GT": False},
+        pc=0,
+        steps=0,
+        halted=False
+    )
 
-# --- 2. 核心结构门 ---
+Instruction = Tuple
 
-def get_gate_result_from_bits(a, b, mode, noise_std=0.0):
-    """
-    简化残差模型:
-      E_total ~ | λ (a + b) A + κ (a b) A |
-    其中 A 是脉冲幅度，噪声加在 E_total 上，然后与阈值比较。
-    """
-    AMPLITUDE = 5.0
-    params = GATE_PARAMS[mode]
-    lambd = params['lambda']
-    kappa = params['kappa']
-    
-    E_sum  = lambd * (a + b) * AMPLITUDE
-    E_prod = kappa * (a * b) * AMPLITUDE
-    E_total = abs(E_sum + E_prod)
+def resolve_labels(program: List[Instruction]):
+    """把 ('LABEL', 'name') 转成 label -> pc 映射，并返回去掉 LABEL 的指令列表"""
+    labels = {}
+    real_instructions = []
+    for instr in program:
+        op = instr[0]
+        if op == "LABEL":
+            label_name = instr[1]
+            labels[label_name] = len(real_instructions)
+        else:
+            real_instructions.append(instr)
+    return real_instructions, labels
 
-    # 加噪声；负值不影响逻辑，因为 threshold>0
-    E_noisy = E_total + np.random.normal(0, noise_std)
-    
-    threshold = params['threshold']
-    logic_output = 1 if E_noisy > threshold else 0
-    
-    return logic_output, E_noisy
+def set_flags_cmp(state: VMState, v1: int, v2: int):
+    state.flags["EQ"] = (v1 == v2)
+    state.flags["LT"] = (v1 <  v2)
+    state.flags["GT"] = (v1 >  v2)
 
-# --- 3. Half-Adder / Full-Adder 逻辑 ---
+def step_vm(state: VMState, program: List[Instruction], labels: Dict[str, int]):
+    if state.halted or not (0 <= state.pc < len(program)):
+        state.halted = True
+        return
 
-def structure_half_adder_logic(a, b, noise_std=0.0):
-    """结构 Half-Adder: Sum = A XOR B, Carry = A AND B"""
-    sum_output,   sum_energy   = get_gate_result_from_bits(a, b, "XOR", noise_std)
-    carry_output, carry_energy = get_gate_result_from_bits(a, b, "AND", noise_std)
-    return sum_output, carry_output, sum_energy, carry_energy
+    instr = program[state.pc]
+    op = instr[0]
+    args = instr[1:]
+    state.steps += 1
 
-def structure_full_adder_logic(a, b, cin, noise_std=0.0):
-    """
-    Full-Adder:
-      S1 = A XOR B
-      C1 = A AND B
-      S  = S1 XOR Cin
-      C2 = S1 AND Cin
-      Cout = C1 OR C2
-    """
-    # 第一半加器
-    S1_out, C1_out, E_s1, E_c1 = structure_half_adder_logic(a, b, noise_std)
-    # 第二半加器
-    S_out, C2_out, E_sum, E_c2 = structure_half_adder_logic(S1_out, cin, noise_std)
-    # OR 组合进位
-    Cout_out, E_cout = get_gate_result_from_bits(C1_out, C2_out, "OR", noise_std)
-    return S_out, Cout_out, E_s1, E_c1, E_sum, E_c2, E_cout
+    # --- 数据操作类 ---
+    if op == "LOADI":
+        r, imm = args
+        state.regs[r] = int(imm)
+        state.pc += 1
 
-# --- 4. N-bit 行波进位加法器 (MSB-first bit 序) ---
+    elif op == "LOAD":
+        r, addr = args
+        state.regs[r] = state.mem[addr]
+        state.pc += 1
 
-def structure_ripple_carry_adder(bits_A, bits_B, noise_std=0.0):
-    """
-    bits_A, bits_B: MSB-first，例如 [0,1,1,1] 表示 0111(2)
-    内部从 LSB 开始做 full-adder，向 MSB 传递进位。
-    """
-    N = len(bits_A)
-    if len(bits_B) != N:
-        raise ValueError("A 和 B 的位数必须相同")
-    
-    Sum_bits = []
-    Carry_out = 0  # C0 = 0
+    elif op == "STORE":
+        r, addr = args
+        state.mem[addr] = int(state.regs[r])
+        state.pc += 1
 
-    # 从最低位 (末尾 index) 开始
-    for i in range(N - 1, -1, -1):
-        a = bits_A[i]
-        b = bits_B[i]
-        cin = Carry_out
-        
-        S_out, Cout_out, *_ = structure_full_adder_logic(a, b, cin, noise_std)
-        Carry_out = Cout_out
-        Sum_bits.insert(0, S_out)  # 塞到前面，保持 MSB-first
+    elif op == "MOV":
+        rd, rs = args
+        state.regs[rd] = int(state.regs[rs])
+        state.pc += 1
 
-    return Sum_bits, Carry_out
+    elif op == "ADD":
+        rd, rs = args
+        state.regs[rd] = state.regs[rd] + state.regs[rs]  # 不做 8-bit 截断，直接用 Python int
+        state.pc += 1
 
-def bits_to_int(bits):
-    return int("".join(map(str, bits)), 2)
+    elif op == "SUB":
+        rd, rs = args
+        state.regs[rd] = state.regs[rd] - state.regs[rs]
+        state.pc += 1
 
-# --- 5. 验证工具 ---
+    elif op == "INC":
+        r, = args
+        state.regs[r] = state.regs[r] + 1
+        state.pc += 1
 
-def verify_gate(mode):
-    print(f"\nVerifying {mode} gate (no noise):")
-    for a in [0, 1]:
-        for b in [0, 1]:
-            out, E = get_gate_result_from_bits(a, b, mode, noise_std=0.0)
-            print(f"  Input ({a},{b}) -> Energy={E:.1f}, Output={out}")
-    print("Done.")
+    elif op == "DEC":
+        r, = args
+        state.regs[r] = state.regs[r] - 1
+        state.pc += 1
 
-def verify_full_adder():
-    print("\nVerifying Full-Adder truth table (no noise):")
-    ok = True
-    for a in [0, 1]:
-        for b in [0, 1]:
-            for cin in [0, 1]:
-                S, Cout, *_ = structure_full_adder_logic(a, b, cin, noise_std=0.0)
-                S_exp   = (a ^ b) ^ cin
-                Cout_exp = (a & b) | ((a ^ b) & cin)
-                if (S != S_exp) or (Cout != Cout_exp):
-                    print(f"  ERROR: ({a},{b},{cin}) -> S={S}(exp={S_exp}), Cout={Cout}(exp={Cout_exp})")
-                    ok = False
-    if ok:
-        print("  Full-Adder truth table fully correct.")
+    # --- 比较 & 标志 ---
+    elif op == "CMP":
+        r1, r2 = args
+        v1 = state.regs[r1]
+        v2 = state.regs[r2]
+        set_flags_cmp(state, v1, v2)
+        state.pc += 1
+
+    elif op == "CMP_IMM":
+        r, imm = args
+        v1 = state.regs[r]
+        v2 = int(imm)
+        set_flags_cmp(state, v1, v2)
+        state.pc += 1
+
+    # --- 跳转 ---
+    elif op == "JMP":
+        label, = args
+        state.pc = labels[label]
+
+    elif op == "JE":
+        label, = args
+        if state.flags["EQ"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    elif op == "JNE":
+        label, = args
+        if not state.flags["EQ"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    elif op == "JLT":
+        label, = args
+        if state.flags["LT"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    elif op == "JGT":
+        label, = args
+        if state.flags["GT"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    elif op == "JLE":
+        label, = args
+        if state.flags["LT"] or state.flags["EQ"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    elif op == "JGE":
+        label, = args
+        if state.flags["GT"] or state.flags["EQ"]:
+            state.pc = labels[label]
+        else:
+            state.pc += 1
+
+    # --- 终止 ---
+    elif op == "HALT":
+        state.halted = True
+
     else:
-        print("  Full-Adder verification FAILED.")
+        raise ValueError(f"未知指令: {op}")
 
-def sanity_check_full_space():
-    """无噪声下，穷举 4-bit 所有 A,B，验证加法是否完全正确。"""
-    print("\nSanity check: 4-bit full space (no noise)")
-    ok = True
-    for A in range(16):
-        for B in range(16):
-            A_bits = [int(b) for b in format(A, '04b')]
-            B_bits = [int(b) for b in format(B, '04b')]
-            S_bits, Cout = structure_ripple_carry_adder(A_bits, B_bits, noise_std=0.0)
-            S_val = bits_to_int(S_bits) + (Cout << 4)
-            if S_val != A + B:
-                print(f"  Mismatch: {A} + {B} -> {S_val} (expected {A+B})")
-                ok = False
-                break
-        if not ok:
-            break
-    print("  All correct?" , ok)
 
-def noise_sweep_for_7_plus_9():
-    """在不同噪声水平下，多次测试 7+9=16 的成功率。"""
-    A_int, B_int, N_bits = 7, 9, 4
-    A_bits = [int(b) for b in format(A_int, f'0{N_bits}b')]
-    B_bits = [int(b) for b in format(B_int, f'0{N_bits}b')]
-    print("\nNoise robustness for 7 + 9 = 16:")
-    for noise in [0.05, 0.1, 0.15, 0.2]:
-        success = 0
-        trials = 200
-        for _ in range(trials):
-            Sum_bits, Cout = structure_ripple_carry_adder(A_bits, B_bits, noise_std=noise)
-            Sum_val = bits_to_int(Sum_bits) + (Cout << N_bits)
-            if Sum_val == A_int + B_int:
-                success += 1
-        print(f"  Noise={noise:.2f}: {success}/{trials} success ({success/trials*100:.1f}%)")
+def run_program(program: List[Instruction], max_steps: int = 10_000) -> VMState:
+    real_prog, labels = resolve_labels(program)
+    state = make_vm()
+    while not state.halted and state.steps < max_steps:
+        step_vm(state, real_prog, labels)
+    if state.steps >= max_steps:
+        print("⚠️ 达到最大步数，可能出现死循环")
+    return state
 
-# --- 6. 主流程：里程碑 4 测试 ---
+# ===============================
+# 程序 1：Sum 1..N
+# ===============================
 
-if __name__ == "__main__":
-    # 6.1 验证单个门
-    verify_gate("XOR")
-    verify_gate("AND")
-    verify_gate("OR")
+def build_program_sum(N: int) -> List[Instruction]:
+    """
+    用 R0 累加 1..N，结果写入 mem[0]
+    R0: sum
+    R1: i
+    R2: N
+    """
+    prog = [
+        ("LOADI", 0, 0),      # R0 = 0 (sum)
+        ("LOADI", 1, 1),      # R1 = 1 (i)
+        ("LOADI", 2, N),      # R2 = N
+        ("LABEL", "loop"),
+        ("CMP",   1, 2),      # cmp R1, R2
+        ("JGT",  "end"),      # if i > N: jump end
+        ("ADD",   0, 1),      # sum += i
+        ("INC",   1),         # i += 1
+        ("JMP",  "loop"),
+        ("LABEL", "end"),
+        ("STORE", 0, 0),      # mem[0] = sum
+        ("HALT",),
+    ]
+    return prog
 
-    # 6.2 验证 Full-Adder 真值表
-    verify_full_adder()
+# ===============================
+# 程序 2：Fib(n) 迭代
+# ===============================
 
-    # 6.3 4-bit 全空间 sanity check
-    sanity_check_full_space()
+def build_program_fib(n: int) -> List[Instruction]:
+    """
+    迭代计算 Fibonacci：
+    R0 = a = fib(i)
+    R1 = b = fib(i+1)
+    R2 = tmp = a+b
+    R3 = counter = n
+    R7 = 0 常量
+    循环 n 次之后，R1 = fib(n+1)
+    最终把 R1 写入 mem[1]
+    """
+    prog = [
+        ("LOADI", 0, 1),      # R0 = 1
+        ("LOADI", 1, 1),      # R1 = 1
+        ("LOADI", 3, n),      # R3 = n (迭代次数)
+        ("LOADI", 7, 0),      # R7 = 0
+        ("LABEL", "loop"),
+        ("CMP",   3, 7),      # cmp R3, 0
+        ("JLE",  "end"),      # if counter <= 0: end
+        ("MOV",   2, 0),      # R2 = R0 (a)
+        ("ADD",   2, 1),      # R2 = a + b
+        ("MOV",   0, 1),      # a = b
+        ("MOV",   1, 2),      # b = a+b
+        ("DEC",   3),         # counter--
+        ("JMP",  "loop"),
+        ("LABEL", "end"),
+        ("STORE", 1, 1),      # mem[1] = b = fib(n+1)
+        ("HALT",),
+    ]
+    return prog
 
-    # 6.4 特定例子：4-bit 7 + 9 = 16
-    A_int = 7
-    B_int = 9
-    N_bits = 4
-    A_bits = [int(b) for b in format(A_int, f'0{N_bits}b')]
-    B_bits = [int(b) for b in format(B_int, f'0{N_bits}b')]
+# ===============================
+# 实验：Sum 与 Fib
+# ===============================
 
-    print("\n" + "="*70)
-    print(f"=== 里程碑 4: {N_bits}-bit 行波进位加法器 (RCA) 实验 ===")
-    print(f"=== 目标计算: {A_int} + {B_int} = {A_int + B_int} ===")
-    print(f"=== 输入比特: A={A_bits} ({A_int}), B={B_bits} ({B_int}) ===")
-    print("="*70)
+def print_state_sum(state: VMState, N: int):
+    print(f"=== 程序 1：Sum 1..{N} ===")
+    print("寄存器状态:", state.regs)
+    print(f"内存[0] (sum 1..{N}):", state.mem[0])
+    print("执行步数:", state.steps)
+    print()
 
-    # 无噪声
-    Sum_bits_clean, Cout_clean = structure_ripple_carry_adder(A_bits, B_bits, noise_std=0.0)
-    Sum_int_clean = bits_to_int(Sum_bits_clean) + (Cout_clean << N_bits)
-    print(f"\n--- 结果 1: 无噪声 ---")
-    print(f"结构输出比特 (Cout | Sum): {Cout_clean} | {Sum_bits_clean}")
-    print(f"结构输出整数: {Sum_int_clean}")
-    print(f"验证: {Sum_int_clean == (A_int + B_int)}")
+def print_state_fib(state: VMState, n: int):
+    print(f"=== 程序 2：Fib(n) 迭代 (n={n}) ===")
+    print("寄存器状态:", state.regs)
+    print(f"内存[1] (fib({n+1})): {state.mem[1]}")
+    print("执行步数:", state.steps)
+    print()
 
-    # 高噪声
-    noise_std_high = 0.1
-    Sum_bits_noisy, Cout_noisy = structure_ripple_carry_adder(A_bits, B_bits, noise_std=noise_std_high)
-    Sum_int_noisy = bits_to_int(Sum_bits_noisy) + (Cout_noisy << N_bits)
-    print(f"\n--- 结果 2: 高噪声 (Noise_Std={noise_std_high}) ---")
-    print(f"结构输出比特 (Cout | Sum): {Cout_noisy} | {Sum_bits_noisy}")
-    print(f"结构输出整数: {Sum_int_noisy}")
-    print(f"验证: {Sum_int_noisy == (A_int + B_int)}")
-    print("-"*70)
+# ===============================
+# 跑实验
+# ===============================
 
-    # 6.5 噪声扫描统计
-    noise_sweep_for_7_plus_9()
+# 1. Sum 1..10
+state_sum10 = run_program(build_program_sum(10))
+print_state_sum(state_sum10, 10)
+
+# 2. Sum 1..20
+state_sum20 = run_program(build_program_sum(20))
+print_state_sum(state_sum20, 20)  # 期待 210
+
+# 3. Fib n=10  -> fib(11)=89
+state_fib10 = run_program(build_program_fib(10))
+print_state_fib(state_fib10, 10)
+
+# 4. Fib n=15  -> fib(16)=987
+state_fib15 = run_program(build_program_fib(15))
+print_state_fib(state_fib15, 15)
+
 
