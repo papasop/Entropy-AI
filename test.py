@@ -13,7 +13,8 @@ DEFAULT_SIGMA = 0.2
 # XOR: Optimized parameters. E values: E(0,0)=0, E(0,1)=5, E(1,0)=5, E(1,1)=0. Margin M=5.0
 XOR_PARAMS = {'lambda_coeff': 5.0, 'kappa_coeff': -10.0, 'tau': 2.5, 'name': 'XOR'}
 
-# AND: Optimized parameters. E values: E(0,0)=0, E(0,1)=1, E(1,0)=1, E(1,1)=6.0. Margin M=5.0
+# AND: Optimized parameters. E values: E(0,0)=0, E(0,1)=1, E(1,0)=1, E(1,1)=6.0. 
+# Margin M = E_pos(min) - E_neg(max) = 6.0 - 1.0 = 5.0.
 AND_PARAMS = {'lambda_coeff': 1.0, 'kappa_coeff': 4.0, 'tau': 3.5, 'name': 'AND'}
 
 # OR: Optimized parameters. E values: E(0,0)=0, E(0,1)=5, E(1,0)=5, E(1,1)=10. Margin M=5.0
@@ -22,6 +23,9 @@ OR_PARAMS = {'lambda_coeff': 5.0, 'kappa_coeff': 0.0, 'tau': 2.5, 'name': 'OR'}
 # --- Gate Functions (Simplified for RVM) ---
 
 def residual_gate_energy(a, b, lambda_coeff, kappa_coeff, sigma_noise=0.0):
+    """
+    Calculates the structural energy E_gate based on the simplified discrete model.
+    """
     a, b = float(a), float(b) 
     base_response = lambda_coeff * (a + b) + kappa_coeff * (a * b)
     E_base = np.abs(base_response) * A0
@@ -30,7 +34,13 @@ def residual_gate_energy(a, b, lambda_coeff, kappa_coeff, sigma_noise=0.0):
         noise = np.random.normal(0, sigma_noise)
     else:
         noise = 0
+        
+    # CRITICAL FIX 7: Maintain non-negativity of energy.
+    # In the simplified additive noise model, max(0, E_noisy) ensures the measured 
+    # structural energy remains non-negative, consistent with the physical nature 
+    # of the integral E = integral r(t)^2 dt.
     E_noisy = max(0, E_base + noise)
+    
     return E_noisy, E_base 
 
 def evaluate_gate(a, b, lambda_coeff, kappa_coeff, tau, sigma_noise=0.0):
