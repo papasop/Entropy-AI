@@ -5,7 +5,7 @@ open Real
 namespace Residual
 set_option autoImplicit false
 set_option linter.unusedVariables false
--- 如果不想看某些提示，也可以加：
+-- 如嫌 style 提示啰嗦，可加：
 -- set_option linter.unnecessarySimpa false
 -- set_option linter.unnecessarySeqFocus false
 
@@ -152,7 +152,6 @@ theorem XOR_unique_min (p : Params)
     · -- (false,true) 要证明 Eb 0 1 ≥ Eb 1 0
       have : Eb p false true = Eb p true false := by
         simpa [eq_comm] using hSym
-      -- 转成 Eb 0 1 ≥ Eb 0 1
       simpa [this]
     · -- (true,false)
       exact le_rfl
@@ -161,69 +160,7 @@ theorem XOR_unique_min (p : Params)
   · exact hSym
 
 ------------------------------------------------------------
--- THEOREM 5 (new) : AND / OR discrete minima on {0,1}²
-------------------------------------------------------------
-
-/-- AND-region: (1,1) 在四个布尔角中具有严格最小能量。 -/
-def isANDregion (p : Params) : Prop :=
-  Eb p true true < Eb p false false ∧
-  Eb p true true < Eb p true false ∧
-  Eb p true true < Eb p false true
-
-/-- THEOREM 5 (AND 部分):
-    在 AND-region 内，(1,1) 是 Eb 在 {0,1}² 上的唯一极小点。 -/
-theorem AND_unique_min (p : Params)
-  (h : isANDregion p) :
-  ∀ a b, Eb p a b ≥ Eb p true true := by
-  rcases h with ⟨hTT00, hTT10, hTT01⟩
-  intro a b
-  cases a <;> cases b
-  · -- (false,false)
-    exact le_of_lt hTT00
-  · -- (false,true)
-    exact le_of_lt hTT01
-  · -- (true,false)
-    exact le_of_lt hTT10
-  · -- (true,true)
-    exact le_rfl
-
-/-- OR-region:
-    三个“真”角 (1,0)、(0,1)、(1,1) 等能量，
-    并且都严格低于 (0,0) 的能量。 -/
-def isORregion (p : Params) : Prop :=
-  Eb p true false = Eb p false true ∧
-  Eb p true false = Eb p true true ∧
-  Eb p true false < Eb p false false
-
-/-- THEOREM 5 (OR 部分):
-    在 OR-region 内，三个 “真” 角 (1,0)、(0,1)、(1,1)
-    组成 Eb 在 {0,1}² 上的极小集。 -/
-theorem OR_min_set (p : Params)
-  (h : isORregion p) :
-  (∀ a b, Eb p a b ≥ Eb p true false) ∧
-  Eb p true false = Eb p false true ∧
-  Eb p true false = Eb p true true := by
-  rcases h with ⟨hTF_FT, hTF_TT, hTF_LT00⟩
-  refine And.intro ?min ?eqs
-  · intro a b
-    cases a <;> cases b
-    · -- (false,false)：能量最高
-      exact le_of_lt hTF_LT00
-    · -- (false,true)：极小之一
-      -- Eb 0 1 = Eb 1 0
-      have : Eb p false true = Eb p true false := by
-        simpa [eq_comm] using hTF_FT
-      simpa [this]
-    · -- (true,false)：极小之一
-      exact le_rfl
-    · -- (true,true)：极小之一，与 (1,0) 等能量
-      have : Eb p true true = Eb p true false := by
-        simpa [eq_comm] using hTF_TT
-      simpa [this]
-  · exact And.intro hTF_FT hTF_TT
-
-------------------------------------------------------------
--- THEOREM 3 : existence of a real threshold τ decoding XOR
+-- THEOREM 3 : XOR gate via real threshold
 ------------------------------------------------------------
 
 /-- Pure Boolean XOR truth table. -/
@@ -330,6 +267,177 @@ theorem XOR_axis_strict_convex_at_corners :
     simpa using this
   · have := d2E_dy2_pos pXOR (b2r a) (b2r b) hLx
     simpa using this
+
+------------------------------------------------------------
+-- THEOREM 5 : AND gate from energy + threshold
+------------------------------------------------------------
+
+/-- Boolean AND. -/
+def ANDbool (a b : Bool) : Bool := a && b
+
+/-- Energy-based AND gate: low-energy region (< τ) interpreted as 1. -/
+def ANDgate (p : Params) (τ : ℝ) (a b : Bool) : Bool :=
+  decide (Eb p a b < τ)
+
+/-- AND-region: (1,1) 的能量严格小于其它三个角。 -/
+def isANDregion (p : Params) : Prop :=
+  Eb p true true < Eb p false false ∧
+  Eb p true true < Eb p true  false ∧
+  Eb p true true < Eb p false true
+
+/-- 在 AND 区域内，存在 τ，使得
+    Eb(1,1) < τ < 其它三点的能量。 -/
+lemma exists_AND_threshold (p : Params) (h : isANDregion p) :
+  ∃ τ,
+    Eb p true true < τ ∧
+    τ < Eb p false false ∧
+    τ < Eb p true  false ∧
+    τ < Eb p false true := by
+  rcases h with ⟨h11_00, h11_10, h11_01⟩
+  let e : ℝ := Eb p true true
+  let m₁ : ℝ := min (Eb p false false) (Eb p true false)
+  let m  : ℝ := min m₁ (Eb p false true)
+  -- e < m₁, e < m
+  have h11_lt_m₁ : e < m₁ := by
+    have := (lt_min_iff).mpr ⟨h11_00, h11_10⟩
+    simpa [e, m₁] using this
+  have h11_lt_m : e < m := by
+    have := (lt_min_iff).mpr ⟨h11_lt_m₁, h11_01⟩
+    simpa [m] using this
+  -- 在 (e, m) 之间选 τ
+  rcases exists_between h11_lt_m with ⟨τ, h_eτ, hτm⟩
+  -- m ≤ 各高能点
+  have hm_le_m₁ : m ≤ m₁ := min_le_left _ _
+  have hm₁_le_00 : m₁ ≤ Eb p false false := min_le_left _ _
+  have hm₁_le_10 : m₁ ≤ Eb p true  false := min_le_right _ _
+  have hm_le_00 : m ≤ Eb p false false := le_trans hm_le_m₁ hm₁_le_00
+  have hm_le_10 : m ≤ Eb p true  false := le_trans hm_le_m₁ hm₁_le_10
+  have hm_le_01 : m ≤ Eb p false true  := min_le_right _ _
+  -- τ < m ≤ Eab ⇒ τ < Eab
+  have hτ_lt_00 : τ < Eb p false false :=
+    lt_of_lt_of_le hτm hm_le_00
+  have hτ_lt_10 : τ < Eb p true  false :=
+    lt_of_lt_of_le hτm hm_le_10
+  have hτ_lt_01 : τ < Eb p false true  :=
+    lt_of_lt_of_le hτm hm_le_01
+  exact ⟨τ, h_eτ, hτ_lt_00, hτ_lt_10, hτ_lt_01⟩
+
+/-- 在这些不等式下，能量门 ANDgate 的真值表等于 ANDbool。 -/
+lemma ANDgate_truth_table (p : Params) {τ : ℝ}
+  (h11 : Eb p true true < τ)
+  (h00 : τ < Eb p false false)
+  (h10 : τ < Eb p true  false)
+  (h01 : τ < Eb p false true) :
+  ∀ a b, ANDgate p τ a b = ANDbool a b := by
+  intro a b
+  cases a <;> cases b
+  · -- (false,false) → 0
+    have : ¬ Eb p false false < τ := not_lt_of_ge (le_of_lt h00)
+    simp [ANDgate, ANDbool, this]
+  · -- (false,true) → 0
+    have : ¬ Eb p false true < τ := not_lt_of_ge (le_of_lt h01)
+    simp [ANDgate, ANDbool, this]
+  · -- (true,false) → 0
+    have : ¬ Eb p true false < τ := not_lt_of_ge (le_of_lt h10)
+    simp [ANDgate, ANDbool, this]
+  · -- (true,true) → 1
+    simp [ANDgate, ANDbool, h11]
+
+/-- THEOREM 5 (formal):
+    在 isANDregion p 假设下，存在 τ，使得能量门
+      (a,b) ↦ [Eb(a,b) < τ]
+    的真值表等于 AND。 -/
+theorem ANDgate_realizes_AND (p : Params) (h : isANDregion p) :
+  ∃ τ, ∀ a b, ANDgate p τ a b = ANDbool a b := by
+  rcases exists_AND_threshold p h with ⟨τ, h11, h00, h10, h01⟩
+  refine ⟨τ, ?_⟩
+  intro a b
+  exact ANDgate_truth_table p h11 h00 h10 h01 a b
+
+------------------------------------------------------------
+-- THEOREM 6 : OR gate from energy + threshold
+------------------------------------------------------------
+
+/-- Boolean OR. -/
+def ORbool (a b : Bool) : Bool := a || b
+
+/-- Energy-based OR gate: 高能量区 (> τ) 视作 1。 -/
+def ORgate (p : Params) (τ : ℝ) (a b : Bool) : Bool :=
+  decide (τ < Eb p a b)
+
+/-- OR-region: (0,0) 的能量严格小于其它三个角。 -/
+def isORregion (p : Params) : Prop :=
+  Eb p false false < Eb p true  false ∧
+  Eb p false false < Eb p false true ∧
+  Eb p false false < Eb p true  true
+
+/-- 在 OR 区域内，存在 τ，使得
+    E00 ≤ τ < 其它三点的能量。 -/
+lemma exists_OR_threshold (p : Params) (h : isORregion p) :
+  ∃ τ,
+    Eb p false false ≤ τ ∧
+    τ < Eb p true  false ∧
+    τ < Eb p false true ∧
+    τ < Eb p true  true := by
+  rcases h with ⟨h00_10, h00_01, h00_11⟩
+  -- 最小的高能量：E10, E01, E11
+  let m₁ : ℝ := min (Eb p true false) (Eb p false true)
+  let m  : ℝ := min m₁ (Eb p true true)
+  -- E00 < m₁, E00 < m
+  have h00_lt_m₁ : Eb p false false < m₁ := by
+    have := (lt_min_iff).mpr ⟨h00_10, h00_01⟩
+    simpa [m₁] using this
+  have h00_lt_m : Eb p false false < m := by
+    have := (lt_min_iff).mpr ⟨h00_lt_m₁, h00_11⟩
+    simpa [m] using this
+  -- 在 (E00, m) 之间选 τ
+  rcases exists_between h00_lt_m with ⟨τ, h00_lt_τ, hτ_lt_m⟩
+  have h00_le_τ : Eb p false false ≤ τ := le_of_lt h00_lt_τ
+  -- m ≤ 各高能点
+  have hm_le_m₁ : m ≤ m₁ := min_le_left _ _
+  have hm₁_le_10 : m₁ ≤ Eb p true false := min_le_left _ _
+  have hm₁_le_01 : m₁ ≤ Eb p false true := min_le_right _ _
+  have hm_le_10 : m ≤ Eb p true false := le_trans hm_le_m₁ hm₁_le_10
+  have hm_le_01 : m ≤ Eb p false true := le_trans hm_le_m₁ hm₁_le_01
+  have hm_le_11 : m ≤ Eb p true true  := min_le_right _ _
+  -- τ < m ≤ Eab ⇒ τ < Eab
+  have hτ_lt_10 : τ < Eb p true false :=
+    lt_of_lt_of_le hτ_lt_m hm_le_10
+  have hτ_lt_01 : τ < Eb p false true :=
+    lt_of_lt_of_le hτ_lt_m hm_le_01
+  have hτ_lt_11 : τ < Eb p true true  :=
+    lt_of_lt_of_le hτ_lt_m hm_le_11
+  exact ⟨τ, h00_le_τ, hτ_lt_10, hτ_lt_01, hτ_lt_11⟩
+
+/-- 在这些不等式下，能量门 ORgate 的真值表等于 OR。 -/
+lemma ORgate_truth_table (p : Params) {τ : ℝ}
+  (h00 : Eb p false false ≤ τ)
+  (h10 : τ < Eb p true  false)
+  (h01 : τ < Eb p false true)
+  (h11 : τ < Eb p true  true) :
+  ∀ a b, ORgate p τ a b = ORbool a b := by
+  intro a b
+  cases a <;> cases b
+  · -- (false,false) → 0
+    have : ¬ τ < Eb p false false := not_lt_of_ge h00
+    simp [ORgate, ORbool, this]
+  · -- (false,true) → 1
+    simp [ORgate, ORbool, h01]
+  · -- (true,false) → 1
+    simp [ORgate, ORbool, h10]
+  · -- (true,true) → 1
+    simp [ORgate, ORbool, h11]
+
+/-- THEOREM 6 (formal):
+    在 isORregion p 假设下，存在 τ，使得能量门
+      (a,b) ↦ [τ < Eb(a,b)]
+    的真值表等于 OR。 -/
+theorem ORgate_realizes_OR (p : Params) (h : isORregion p) :
+  ∃ τ, ∀ a b, ORgate p τ a b = ORbool a b := by
+  rcases exists_OR_threshold p h with ⟨τ, h00, h10, h01, h11⟩
+  refine ⟨τ, ?_⟩
+  intro a b
+  exact ORgate_truth_table p h00 h10 h01 h11 a b
 
 end Residual
 
