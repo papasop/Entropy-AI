@@ -308,5 +308,41 @@ def prog_not_r0 : List Instr := [Instr.not Reg.r0]
 lemma run_not_r0 :
   (run prog_not_r0 1 initState).regs Reg.r0 = true := by
   simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
+------------------------------------------------------------
+-- 7ter. Hamming 代价与“局部对齐”更新（为梯度流做准备）
+------------------------------------------------------------
+
+/-- 单个输入点 (a,b) 上的 mismatch：如果 f(a,b) ≠ gateFn m(a,b)，记 1，否则 0。 -/
+def mismatch (m : EnergyModel) (f : BoolFn) (a b : Bool) : Nat :=
+  if f a b = gateFn m a b then 0 else 1
+
+/-- 与 gateFn 在四个输入点上的 Hamming 距离（最多为 4）。 -/
+def hammingCost (m : EnergyModel) (f : BoolFn) : Nat :=
+  mismatch m f false false +
+  mismatch m f false true  +
+  mismatch m f true  false +
+  mismatch m f true  true
+
+/-- 在输入点 (a0,b0) 上，把 f 的输出“对齐”到 gateFn m 的输出，其它点保持不变。 -/
+def updateAt (m : EnergyModel) (f : BoolFn) (a0 b0 : Bool) : BoolFn :=
+  fun a b =>
+    if a = a0 ∧ b = b0 then
+      -- 对齐到目标 gateFn m
+      gateFn m a b
+    else
+      -- 其它输入点保持原值
+      f a b
+
+/-- updateAt 在目标点 (a0,b0) 上确实等于 gateFn m。 -/
+lemma updateAt_at_target (m : EnergyModel) (f : BoolFn) (a0 b0 : Bool) :
+  updateAt m f a0 b0 a0 b0 = gateFn m a0 b0 := by
+  simp [updateAt]
+
+/-- updateAt 在非目标点上不改变原函数值。 -/
+lemma updateAt_other (m : EnergyModel) (f : BoolFn) (a0 b0 a b : Bool)
+  (h : ¬ (a = a0 ∧ b = b0)) :
+  updateAt m f a0 b0 a b = f a b := by
+  simp [updateAt, h]
 
 end Residual
+
