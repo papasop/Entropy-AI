@@ -1,0 +1,107 @@
+import Mathlib
+
+namespace ResidualComputer
+
+-- 打印用分隔线
+def dashLine (n : Nat := 60) : String :=
+  String.mk (List.replicate n '-')
+
+-- 0. 物理与架构参数
+
+def M_ENERGY_GAP : Float := 5.0
+
+-- 1. 理论起源模块：门参数 & 能量函数
+
+-- 布尔门的能量参数 (λ, κ, τ)
+structure GateParams where
+  lambda : Float
+  kappa  : Float
+  tau    : Float
+deriving Repr
+
+-- XOR / AND / OR 的能量参数，对应 Python 中的 PARAMS_XOR / AND / OR
+def PARAMS_XOR : GateParams :=
+  { lambda := 20.0, kappa := -30.0, tau := 15.0 }
+
+def PARAMS_AND : GateParams :=
+  { lambda := 10.0, kappa := 20.0,  tau := 15.0 }
+
+def PARAMS_OR  : GateParams :=
+  { lambda := 15.0, kappa := 0.0,   tau := 7.5 }
+
+-- 能量函数 E(a,b) = | λ(a+b) + κab | ，a,b ∈ {0,1}
+def energyFunction (a b : Nat) (p : GateParams) : Float :=
+  Float.abs
+    ( p.lambda * (Float.ofNat (a + b))
+    + p.kappa  * (Float.ofNat (a * b)) )
+
+-- 根据能量与阈值 τ 实现布尔门：E > τ ? 1 : 0
+def booleanGateFromEnergy (a b : Nat) (p : GateParams) : Nat :=
+  if energyFunction a b p > p.tau then 1 else 0
+
+-- 简单的 Float 最小值函数
+def minF (x y : Float) : Float :=
+  if x ≤ y then x else y
+
+-- 计算该门在四个输入上的最小能量裕度 M = min |E - τ|
+def computeEnergyMargin (p : GateParams) : Float :=
+  let m00 := Float.abs (energyFunction 0 0 p - p.tau)
+  let m01 := Float.abs (energyFunction 0 1 p - p.tau)
+  let m10 := Float.abs (energyFunction 1 0 p - p.tau)
+  let m11 := Float.abs (energyFunction 1 1 p - p.tau)
+  minF (minF m00 m01) (minF m10 m11)
+
+-- 2. 真值表与单个门的验证逻辑
+
+-- 三元组 (a,b,expected) 的列表
+def xorCases : List (Nat × Nat × Nat) :=
+  [ (0,0,0), (0,1,1), (1,0,1), (1,1,0) ]
+
+def andCases : List (Nat × Nat × Nat) :=
+  [ (0,0,0), (0,1,0), (1,0,0), (1,1,1) ]
+
+def orCases  : List (Nat × Nat × Nat) :=
+  [ (0,0,0), (0,1,1), (1,0,1), (1,1,1) ]
+
+-- (a,b) -> "a,b" 方便打印
+def inputToString (a b : Nat) : String :=
+  toString a ++ "," ++ toString b
+
+-- 验证单个门，并打印细节与能量裕度
+def verifyGate (name : String) (p : GateParams) (cases : List (Nat × Nat × Nat)) :
+    IO Unit := do
+  IO.println s!"--- 验证门: {name} ---"
+  let margin := computeEnergyMargin p
+  let mut allOk := true
+  for t in cases do
+    let (a,b,e) := t
+    let E := energyFunction a b p
+    let out := booleanGateFromEnergy a b p
+    let cmp := if E > p.tau then "E > τ" else "E ≤ τ"
+    IO.println
+      s!"  Input ({inputToString a b}): E={E} (τ={p.tau}, {cmp}) -> Result: {out} (Expected: {e})"
+    if out ≠ e then
+      allOk := false
+  let status :=
+    if allOk && margin ≥ M_ENERGY_GAP then "✅ 成功" else "❌ 失败"
+  IO.println s!"  验证状态: {status}，实际裕度 M = {margin}"
+
+-- 3. 总体理论验证入口
+
+def runTheoryVerification : IO Unit := do
+  IO.println (dashLine 60)
+  IO.println "【理论验证】1. 能量最小化与布尔逻辑起源 (目标 M=5.0)"
+  IO.println (dashLine 60)
+  verifyGate "XOR" PARAMS_XOR xorCases
+  verifyGate "AND" PARAMS_AND andCases
+  verifyGate "OR"  PARAMS_OR  orCases
+
+-- main：如果你的项目有可执行入口，就用这个；否则这段代码本身也无所谓
+def main : IO Unit :=
+  runTheoryVerification
+
+end ResidualComputer
+
+#eval ResidualComputer.runTheoryVerification
+-- 或者
+-- #eval ResidualComputer.main
