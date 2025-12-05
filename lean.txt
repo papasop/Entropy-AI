@@ -308,6 +308,7 @@ def prog_not_r0 : List Instr := [Instr.not Reg.r0]
 lemma run_not_r0 :
   (run prog_not_r0 1 initState).regs Reg.r0 = true := by
   simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
+
 ------------------------------------------------------------
 -- 7ter. Hamming 代价与“局部对齐”更新（为梯度流做准备）
 ------------------------------------------------------------
@@ -327,10 +328,8 @@ def hammingCost (m : EnergyModel) (f : BoolFn) : Nat :=
 def updateAt (m : EnergyModel) (f : BoolFn) (a0 b0 : Bool) : BoolFn :=
   fun a b =>
     if a = a0 ∧ b = b0 then
-      -- 对齐到目标 gateFn m
       gateFn m a b
     else
-      -- 其它输入点保持原值
       f a b
 
 /-- updateAt 在目标点 (a0,b0) 上确实等于 gateFn m。 -/
@@ -343,6 +342,30 @@ lemma updateAt_other (m : EnergyModel) (f : BoolFn) (a0 b0 a b : Bool)
   (h : ¬ (a = a0 ∧ b = b0)) :
   updateAt m f a0 b0 a b = f a b := by
   simp [updateAt, h]
+
+------------------------------------------------------------
+-- 7quater. 一个“4 步局部更新”的确定动力系统：fixAll
+------------------------------------------------------------
+
+/-- 连续对 4 个输入点依次做局部对齐：
+    先修正 (false,false)，再修 (false,true)，再 (true,false)，最后 (true,true)。 -/
+def fixAll (m : EnergyModel) (f : BoolFn) : BoolFn :=
+  updateAt m
+    (updateAt m
+      (updateAt m
+        (updateAt m f false false)
+        false true)
+      true false)
+    true true
+
+/-- 形式化定理：
+    对任意初始布尔函数 `f`，做完 fixAll 的 4 步局部对齐之后，
+    得到的函数在所有输入点上都等于 `gateFn m`。 -/
+lemma fixAll_eq_gateFn (m : EnergyModel) (f : BoolFn) :
+  fixAll m f = gateFn m := by
+  funext a b
+  cases a <;> cases b <;>
+    simp [fixAll, updateAt, gateFn]
 
 end Residual
 
