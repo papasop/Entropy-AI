@@ -1,371 +1,195 @@
 import Mathlib
 noncomputable section
-open Int
+open Real
 
 namespace Residual
 set_option autoImplicit false
 set_option linter.unusedVariables false
-open Classical
 
 ------------------------------------------------------------
--- 0. BoolFn 的可判等
+-- 0. BoolFn：二元布尔函数空间（Theorem 3 用）
 ------------------------------------------------------------
 
-/-- 二元布尔函数类型。 -/
+/-- 二元布尔函数类型：{0,1}² → {0,1}. -/
 def BoolFn := Bool → Bool → Bool
 
-/-- 在 classical 公理下，任意类型都有可判等实例。 -/
-instance : DecidableEq BoolFn := Classical.decEq _
-
 ------------------------------------------------------------
--- 1. Bool → Int
+-- 1. 连续能量律与 Hessian（Theorem 1）
 ------------------------------------------------------------
 
-def bit (b : Bool) : Int := if b then 1 else 0
+/-- 能量参数：λ, κ. -/
+structure Params where
+  lam : ℝ
+  kap : ℝ
+deriving DecidableEq   -- 不派生 Repr，避免 unsafe
 
-@[simp] lemma bit_false : bit false = 0 := rfl
-@[simp] lemma bit_true  : bit true  = 1 := rfl
+/-- 连续能量：E(x,y) = (lam*(x+y) + kap*x*y)^2. -/
+def E (p : Params) (x y : ℝ) : ℝ :=
+  let g := p.lam*(x + y) + p.kap*x*y
+  g*g
 
-------------------------------------------------------------
--- 2. 能量函数
-------------------------------------------------------------
+/-- ∂E/∂x 的显式代数表达式（不依赖微积分库）。 -/
+def dE_dx (p : Params) (x y : ℝ) : ℝ :=
+  let g := p.lam*(x + y) + p.kap*x*y
+  let L := p.lam + p.kap*y
+  2*g*L
 
-def Energy (lam kap : Int) (a b : Bool) : Int :=
-  abs (lam * (bit a + bit b) + kap * (bit a * bit b))
+/-- ∂E/∂y 的显式代数表达式。 -/
+def dE_dy (p : Params) (x y : ℝ) : ℝ :=
+  let g := p.lam*(x + y) + p.kap*x*y
+  let L := p.lam + p.kap*x
+  2*g*L
 
-------------------------------------------------------------
--- 3. 门函数
-------------------------------------------------------------
+/-- ∂²E/∂x². -/
+def d2E_dx2 (p : Params) (x y : ℝ) : ℝ :=
+  let L := p.lam + p.kap*y
+  2 * L * L
 
-def gate (lam kap tau : Int) (a b : Bool) : Bool :=
-  decide (tau < Energy lam kap a b)
+/-- ∂²E/∂y². -/
+def d2E_dy2 (p : Params) (x y : ℝ) : ℝ :=
+  let L := p.lam + p.kap*x
+  2 * L * L
 
-------------------------------------------------------------
--- 4. XOR / AND / OR / NOT
-------------------------------------------------------------
+/-- ∂²E/(∂x∂y). -/
+def d2E_dxdy (p : Params) (x y : ℝ) : ℝ :=
+  let g  := p.lam*(x + y) + p.kap*x*y
+  let Lx := p.lam + p.kap*y
+  let Ly := p.lam + p.kap*x
+  2 * (Lx * Ly + p.kap*g)
 
-def lamXOR : Int := 20
-def kapXOR : Int := -30
-def tauXOR : Int := 15
+/-- Hessian 矩阵（2×2）。 -/
+def Hessian (p : Params) (x y : ℝ) : Matrix (Fin 2) (Fin 2) ℝ :=
+  fun i j =>
+    match i.val, j.val with
+    | 0,0 => d2E_dx2  p x y
+    | 0,1 => d2E_dxdy p x y
+    | 1,0 => d2E_dxdy p x y
+    | 1,1 => d2E_dy2  p x y
+    | _,_ => 0  -- 理论上不会到这里，仅为模式匹配完备
 
-def lamAND : Int := 10
-def kapAND : Int := 20
-def tauAND : Int := 15
-
-def lamOR  : Int := 15
-def kapOR  : Int := 0
-def tauOR  : Int := 7
-
-def XORb (a b : Bool) : Bool := gate lamXOR kapXOR tauXOR a b
-def ANDb (a b : Bool) : Bool := gate lamAND kapAND tauAND a b
-def ORb  (a b : Bool) : Bool := gate lamOR  kapOR  tauOR  a b
-
-def NOTb (a : Bool) : Bool := XORb a true
-
-------------------------------------------------------------
--- 5. 真值表（自动由 decide 完成）
-------------------------------------------------------------
-
-lemma XORb_ff : XORb false false = false := by
-  unfold XORb gate Energy bit; decide
-lemma XORb_ft : XORb false true  = true  := by
-  unfold XORb gate Energy bit; decide
-lemma XORb_tf : XORb true  false = true  := by
-  unfold XORb gate Energy bit; decide
-lemma XORb_tt : XORb true  true  = false := by
-  unfold XORb gate Energy bit; decide
-
-lemma ANDb_ff : ANDb false false = false := by
-  unfold ANDb gate Energy bit; decide
-lemma ANDb_ft : ANDb false true  = false := by
-  unfold ANDb gate Energy bit; decide
-lemma ANDb_tf : ANDb true  false = false := by
-  unfold ANDb gate Energy bit; decide
-lemma ANDb_tt : ANDb true  true  = true  := by
-  unfold ANDb gate Energy bit; decide
-
-lemma ORb_ff : ORb false false = false := by
-  unfold ORb gate Energy bit; decide
-lemma ORb_ft : ORb false true  = true  := by
-  unfold ORb gate Energy bit; decide
-lemma ORb_tf : ORb true  false = true  := by
-  unfold ORb gate Energy bit; decide
-lemma ORb_tt : ORb true  true  = true := by
-  unfold ORb gate Energy bit; decide
-
-lemma NOTb_false : NOTb false = true := by
-  unfold NOTb XORb gate Energy bit; decide
-lemma NOTb_true  : NOTb true  = false := by
-  unfold NOTb XORb gate Energy bit; decide
+/-- Theorem 1: 对任意 (x,y)，Hessian 是对称矩阵。 -/
+lemma Hessian_symm (p : Params) (x y : ℝ) :
+  Matrix.transpose (Hessian p x y) = Hessian p x y := by
+  funext i j
+  cases' i using Fin.cases with hi hi <;>
+  cases' j using Fin.cases with hj hj <;>
+  simp [Hessian, Matrix.transpose]
 
 ------------------------------------------------------------
--- 6. 抽象能量模型
+-- 2. 离散能量 E_b 上的 XOR 唯一极小性（Theorem 2）
 ------------------------------------------------------------
 
-structure EnergyModel where
-  lam : Int
-  kap : Int
-  tau : Int
-deriving Repr, DecidableEq
+/-- 将连续能量 E 限制到布尔点 (0,1)² 上。 -/
+def Eb (p : Params) (a b : Bool) : ℝ :=
+  E p (if a then 1 else 0) (if b then 1 else 0)
 
-def XORmodel : EnergyModel := { lam := lamXOR, kap := kapXOR, tau := tauXOR }
-def ANDmodel : EnergyModel := { lam := lamAND, kap := kapAND, tau := tauAND }
-def ORmodel  : EnergyModel := { lam := lamOR,  kap := kapOR,  tau := tauOR }
+/-- XOR 区域：Lean 需要一个显式的能量排序假设。 -/
+def isXORregion (p : Params) : Prop :=
+  Eb p true  false = Eb p false true ∧
+  Eb p true  false < Eb p false false ∧
+  Eb p true  false < Eb p true  true
 
-/-- 模型 `m` 实现布尔函数 `f`：对所有输入 a,b，门的输出等于 f 的输出。 -/
-def implements (m : EnergyModel) (f : BoolFn) : Prop :=
-  ∀ a b, gate m.lam m.kap m.tau a b = f a b
+/-- Theorem 2:
+  在 XOR 区域内，(1,0) / (0,1) 的能量是所有布尔点中最小，
+  并且 Eb(1,0) = Eb(0,1)（XOR 的两个 “true” 点能量相等且为全局最小）。 -/
+theorem XOR_unique_min (p : Params)
+  (h : isXORregion p) :
+  (∀ a b, Eb p a b ≥ Eb p true false) ∧
+  Eb p true false = Eb p false true :=
+by
+  rcases h with ⟨hSym, hLT00, hLT11⟩
 
-/-- 在点 (a,b) 处的能量与阈值的距离。 -/
-def marginPoint (m : EnergyModel) (a b : Bool) : Nat :=
-  Int.natAbs (Energy m.lam m.kap a b - m.tau)
+  refine And.intro ?min ?eq
 
-/-- 模型的最小能量裕度：4 个输入点上距离的最小值。 -/
-def marginOf (m : EnergyModel) : Nat :=
-  let m00 := marginPoint m false false
-  let m01 := marginPoint m false true
-  let m10 := marginPoint m true  false
-  let m11 := marginPoint m true  true
-  Nat.min (Nat.min m00 m01) (Nat.min m10 m11)
+  · intro a b
+    -- 穷举四个布尔点
+    cases a <;> cases b <;>
+    simp [Eb] <;>
+    first
+      | exact le_of_lt hLT00        -- (0,0) 能量 > (1,0)
+      | exact le_of_lt hLT11        -- (1,1) 能量 > (1,0)
+      | exact le_of_eq (Eq.symm hSym) -- (0,1) 与 (1,0) 能量相等
+      | exact le_of_eq hSym
 
-lemma margin_XOR : marginOf XORmodel = 5 :=
-  by simp [marginOf, marginPoint, XORmodel, lamXOR, kapXOR, tauXOR, Energy]
-
-lemma margin_AND : marginOf ANDmodel = 5 :=
-  by simp [marginOf, marginPoint, ANDmodel, lamAND, kapAND, tauAND, Energy]
-
-lemma margin_OR : marginOf ORmodel = 7 :=
-  by simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
-
-------------------------------------------------------------
--- 7. “实现”的存在性与唯一性（函数层面）
-------------------------------------------------------------
-
-/-- 把能量模型对应的门视为一个 BoolFn。 -/
-def gateFn (m : EnergyModel) : BoolFn :=
-  fun a b => gate m.lam m.kap m.tau a b
-
-/-- 任意模型都“实现”自己的 gateFn（按定义）。 -/
-lemma implements_gateFn (m : EnergyModel) : implements m (gateFn m) := by
-  intro a b
-  rfl
-
-/-- 若同一个模型 `m` 同时实现 `f` 和 `g`，则二者必然相等。 -/
-lemma implements_unique (m : EnergyModel) {f g : BoolFn}
-  (hf : implements m f) (hg : implements m g) : f = g := by
-  funext a b
-  have hf' := hf a b
-  have hg' := hg a b
-  calc
-    f a b = gate m.lam m.kap m.tau a b := by simpa using hf'.symm
-    _     = g a b := hg'
-
-/-- 用能量门定义的 XOR/AND/OR 函数别名。 -/
-def XORfn : BoolFn := XORb
-def ANDfn : BoolFn := ANDb
-def ORfn  : BoolFn := ORb
-
-lemma XOR_implements : implements XORmodel XORfn := by
-  intro a b
-  rfl
-
-lemma AND_implements : implements ANDmodel ANDfn := by
-  intro a b
-  rfl
-
-lemma OR_implements : implements ORmodel ORfn := by
-  intro a b
-  rfl
-
-/-- 对于 XORmodel，任何被该模型实现的 BoolFn 都必然等于 XORfn。 -/
-lemma XOR_implements_unique (f : BoolFn) (hf : implements XORmodel f) :
-  f = XORfn :=
-  implements_unique XORmodel hf XOR_implements
-
-/-- 对于 ANDmodel，任何被该模型实现的 BoolFn 都必然等于 ANDfn。 -/
-lemma AND_implements_unique (f : BoolFn) (hf : implements ANDmodel f) :
-  f = ANDfn :=
-  implements_unique ANDmodel hf AND_implements
-
-/-- 对于 ORmodel，任何被该模型实现的 BoolFn 都必然等于 ORfn。 -/
-lemma OR_implements_unique (f : BoolFn) (hf : implements ORmodel f) :
-  f = ORfn :=
-  implements_unique ORmodel hf OR_implements
+  · exact hSym
 
 ------------------------------------------------------------
--- 7bis. 极简 cost 与离散动态：收敛到 gateFn
+-- 3. 离散“局部对齐”动力学的全局收敛（Theorem 3）
 ------------------------------------------------------------
 
-/-- 一个极简的“能量代价”：在 gateFn 处为 0，其它函数为 1。 -/
-def energyCost (m : EnergyModel) (f : BoolFn) : Nat :=
-  if f = gateFn m then 0 else 1
+/-- 单点 mismatch：如果 f(a,b) ≠ target(a,b)，记 1，否则 0。 -/
+def mismatch (target f : BoolFn) (a b : Bool) : Nat :=
+  if f a b = target a b then 0 else 1
 
-/-- cost 为 0 当且仅当 f = gateFn m（唯一极小值）。 -/
-lemma energyCost_zero_iff_eq_gate (m : EnergyModel) (f : BoolFn) :
-  energyCost m f = 0 ↔ f = gateFn m := by
-  unfold energyCost
-  by_cases h : f = gateFn m
-  · simp [h]
-  · simp [h]
+/-- 与 target 在四个布尔输入上的 Hamming 距离（0–4）。 -/
+def hammingCost (target f : BoolFn) : Nat :=
+  mismatch target f false false +
+  mismatch target f false true  +
+  mismatch target f true  false +
+  mismatch target f true  true
 
-/-- 只要 f ≠ gateFn，代价就是 1，因此严格大于 0。 -/
-lemma energyCost_pos_if_ne (m : EnergyModel) (f : BoolFn) (h : f ≠ gateFn m) :
-  0 < energyCost m f := by
-  unfold energyCost
-  simp [h]
-
-/-- 一步离散动态：直接把任何 BoolFn 映射到其能量模型对应的 gateFn。 -/
-def stepDyn (m : EnergyModel) (f : BoolFn) : BoolFn :=
-  gateFn m
-
-/-- gateFn 在动态下是不动点。 -/
-lemma stepDyn_fixpoint (m : EnergyModel) :
-  stepDyn m (gateFn m) = gateFn m := rfl
-
-/-- 只要还没到 gateFn，这个一步动态会把 cost 从 1 降为 0。 -/
-lemma stepDyn_decreases_cost (m : EnergyModel) (f : BoolFn) (h : f ≠ gateFn m) :
-  energyCost m (stepDyn m f) < energyCost m f := by
-  unfold stepDyn energyCost
-  simp [h]
-
-/-- 多步迭代的离散动态：iterDyn m n f 表示连续做 n 步 stepDyn。 -/
-def iterDyn (m : EnergyModel) : Nat → BoolFn → BoolFn
-  | 0,     f => f
-  | n + 1, f => stepDyn m (iterDyn m n f)
-
-/-- 证明：做 n+1 步，一定已经到 gateFn。 -/
-lemma iterDyn_succ (m : EnergyModel) (n : Nat) (f : BoolFn) :
-  iterDyn m (n+1) f = gateFn m := by
-  cases n <;> simp [iterDyn, stepDyn]
-
-/-- 形式的“收敛定理”：对任何 n ≥ 1，iterDyn m n f = gateFn m。 -/
-lemma iterDyn_converges (m : EnergyModel) (f : BoolFn) :
-  ∀ n ≥ 1, iterDyn m n f = gateFn m := by
-  intro n hn
-  cases n with
-  | zero =>
-      cases hn
-  | succ k =>
-      simpa using (iterDyn_succ m k f)
-
-------------------------------------------------------------
--- 8. Residual Computing：寄存器机
-------------------------------------------------------------
-
-inductive Reg where
-  | r0 | r1 | r2 | r3
-deriving DecidableEq, Repr
-
-def RegFile := Reg → Bool
-
-def initRegs : RegFile := fun _ => false
-
-def writeReg (r : Reg) (v : Bool) (rf : RegFile) : RegFile :=
-  fun r' => if r' = r then v else rf r'
-
-inductive Instr where
-  | xor (dst src : Reg)
-  | and (dst src : Reg)
-  | or  (dst src : Reg)
-  | not (dst : Reg)
-  | halt
-deriving Repr
-
-structure State where
-  regs : RegFile
-  pc   : Nat
-
-def initState : State := { regs := initRegs, pc := 0 }
-
-def getInstr (prog : List Instr) (pc : Nat) : Option Instr := prog[pc]?
-
-def step (prog : List Instr) (s : State) : State :=
-  match getInstr prog s.pc with
-  | none => s
-  | some Instr.halt => s
-  | some (Instr.xor d x) =>
-      let v := XORb (s.regs d) (s.regs x)
-      { regs := writeReg d v s.regs, pc := s.pc + 1 }
-  | some (Instr.and d x) =>
-      let v := ANDb (s.regs d) (s.regs x)
-      { regs := writeReg d v s.regs, pc := s.pc + 1 }
-  | some (Instr.or d x)  =>
-      let v := ORb (s.regs d) (s.regs x)
-      { regs := writeReg d v s.regs, pc := s.pc + 1 }
-  | some (Instr.not d) =>
-      let v := NOTb (s.regs d)
-      { regs := writeReg d v s.regs, pc := s.pc + 1 }
-
-def run (prog : List Instr) (steps : Nat) : State → State :=
-  fun s0 => Nat.recOn steps s0 (fun _ st => step prog st)
-
-------------------------------------------------------------
--- 9. 示例程序：NOT r0
-------------------------------------------------------------
-
-def prog_not_r0 : List Instr := [Instr.not Reg.r0]
-
-lemma run_not_r0 :
-  (run prog_not_r0 1 initState).regs Reg.r0 = true := by
-  simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
-
-------------------------------------------------------------
--- 7ter. Hamming 代价与“局部对齐”更新（为梯度流做准备）
-------------------------------------------------------------
-
-/-- 单个输入点 (a,b) 上的 mismatch：如果 f(a,b) ≠ gateFn m(a,b)，记 1，否则 0。 -/
-def mismatch (m : EnergyModel) (f : BoolFn) (a b : Bool) : Nat :=
-  if f a b = gateFn m a b then 0 else 1
-
-/-- 与 gateFn 在四个输入点上的 Hamming 距离（最多为 4）。 -/
-def hammingCost (m : EnergyModel) (f : BoolFn) : Nat :=
-  mismatch m f false false +
-  mismatch m f false true  +
-  mismatch m f true  false +
-  mismatch m f true  true
-
-/-- 在输入点 (a0,b0) 上，把 f 的输出“对齐”到 gateFn m 的输出，其它点保持不变。 -/
-def updateAt (m : EnergyModel) (f : BoolFn) (a0 b0 : Bool) : BoolFn :=
+/-- 在输入点 (a0,b0) 上，把 f 的输出对齐到 target，其它点保持不变。 -/
+def updateAt (target f : BoolFn) (a0 b0 : Bool) : BoolFn :=
   fun a b =>
     if a = a0 ∧ b = b0 then
-      gateFn m a b
+      target a b
     else
       f a b
 
-/-- updateAt 在目标点 (a0,b0) 上确实等于 gateFn m。 -/
-lemma updateAt_at_target (m : EnergyModel) (f : BoolFn) (a0 b0 : Bool) :
-  updateAt m f a0 b0 a0 b0 = gateFn m a0 b0 := by
+/-- updateAt 在目标点 (a0,b0) 上确实等于 target。 -/
+lemma updateAt_at_target (target f : BoolFn) (a0 b0 : Bool) :
+  updateAt target f a0 b0 a0 b0 = target a0 b0 := by
   simp [updateAt]
 
-/-- updateAt 在非目标点上不改变原函数值。 -/
-lemma updateAt_other (m : EnergyModel) (f : BoolFn) (a0 b0 a b : Bool)
+/-- 在非目标点上，updateAt 不改变原函数值。 -/
+lemma updateAt_other (target f : BoolFn) (a0 b0 a b : Bool)
   (h : ¬ (a = a0 ∧ b = b0)) :
-  updateAt m f a0 b0 a b = f a b := by
+  updateAt target f a0 b0 a b = f a b := by
   simp [updateAt, h]
 
-------------------------------------------------------------
--- 7quater. 一个“4 步局部更新”的确定动力系统：fixAll
-------------------------------------------------------------
-
-/-- 连续对 4 个输入点依次做局部对齐：
-    先修正 (false,false)，再修 (false,true)，再 (true,false)，最后 (true,true)。 -/
-def fixAll (m : EnergyModel) (f : BoolFn) : BoolFn :=
-  updateAt m
-    (updateAt m
-      (updateAt m
-        (updateAt m f false false)
+/-- 连续对四个布尔输入点依次做局部对齐：
+    先修正 (false,false)，再修正 (false,true)，
+    然后修正 (true,false)，最后修正 (true,true)。 -/
+def fixAll (target f : BoolFn) : BoolFn :=
+  updateAt target
+    (updateAt target
+      (updateAt target
+        (updateAt target f false false)
         false true)
       true false)
     true true
 
-/-- 形式化定理：
-    对任意初始布尔函数 `f`，做完 fixAll 的 4 步局部对齐之后，
-    得到的函数在所有输入点上都等于 `gateFn m`。 -/
-lemma fixAll_eq_gateFn (m : EnergyModel) (f : BoolFn) :
-  fixAll m f = gateFn m := by
+/-- Theorem 3 核心：对任意 (a,b)，fixAll target f 的值等于 target a b。 -/
+lemma fixAll_eval (target f : BoolFn) :
+  fixAll target f = target := by
   funext a b
+  -- 穷举四种布尔输入
   cases a <;> cases b <;>
-    simp [fixAll, updateAt, gateFn]
+    simp [fixAll, updateAt]
+
+/-- Theorem 3（全局收敛版）：
+    对任意目标门 `target` 和任意初始布尔函数 `f`，
+    经过 fixAll 的 4 步局部对齐之后，得到的函数必然等于 `target`。 -/
+theorem fixAll_converges (target f : BoolFn) :
+  fixAll target f = target :=
+  fixAll_eval target f
+
+/-- 推论：fixAll 之后在任意点 (a,b) 不再有 mismatch。 -/
+lemma mismatch_fixAll_zero (target f : BoolFn) (a b : Bool) :
+  mismatch target (fixAll target f) a b = 0 := by
+  have h := congrArg (fun g => g a b) (fixAll_eval target f)
+  unfold mismatch
+  simp [h]
+
+/-- 推论：fixAll 之后 Hamming 代价为 0（和 target 完全一致）。 -/
+lemma hammingCost_fixAll_zero (target f : BoolFn) :
+  hammingCost target (fixAll target f) = 0 := by
+  unfold hammingCost
+  have h00 := mismatch_fixAll_zero target f false false
+  have h01 := mismatch_fixAll_zero target f false true
+  have h10 := mismatch_fixAll_zero target f true  false
+  have h11 := mismatch_fixAll_zero target f true  true
+  simp [h00, h01, h10, h11]
 
 end Residual
 
