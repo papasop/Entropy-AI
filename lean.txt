@@ -54,23 +54,37 @@ def NOTb (a : Bool) : Bool := XORb a true
 -- 5. 真值表（自动由 decide 完成）
 ------------------------------------------------------------
 
-lemma XORb_ff : XORb false false = false := by unfold XORb gate Energy bit; decide
-lemma XORb_ft : XORb false true  = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tf : XORb true  false = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tt : XORb true  true  = false := by unfold XORb gate Energy bit; decide
+lemma XORb_ff : XORb false false = false := by
+  unfold XORb gate Energy bit; decide
+lemma XORb_ft : XORb false true  = true  := by
+  unfold XORb gate Energy bit; decide
+lemma XORb_tf : XORb true  false = true  := by
+  unfold XORb gate Energy bit; decide
+lemma XORb_tt : XORb true  true  = false := by
+  unfold XORb gate Energy bit; decide
 
-lemma ANDb_ff : ANDb false false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_ft : ANDb false true  = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tf : ANDb true  false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tt : ANDb true  true  = true  := by unfold ANDb gate Energy bit; decide
+lemma ANDb_ff : ANDb false false = false := by
+  unfold ANDb gate Energy bit; decide
+lemma ANDb_ft : ANDb false true  = false := by
+  unfold ANDb gate Energy bit; decide
+lemma ANDb_tf : ANDb true  false = false := by
+  unfold ANDb gate Energy bit; decide
+lemma ANDb_tt : ANDb true  true  = true  := by
+  unfold ANDb gate Energy bit; decide
 
-lemma ORb_ff : ORb false false = false := by unfold ORb gate Energy bit; decide
-lemma ORb_ft : ORb false true  = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tf : ORb true  false = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tt : ORb true  true  = true  := by unfold ORb gate Energy bit; decide
+lemma ORb_ff : ORb false false = false := by
+  unfold ORb gate Energy bit; decide
+lemma ORb_ft : ORb false true  = true  := by
+  unfold ORb gate Energy bit; decide
+lemma ORb_tf : ORb true  false = true  := by
+  unfold ORb gate Energy bit; decide
+lemma ORb_tt : ORb true  true  = true  := by
+  unfold ORb gate Energy bit; decide
 
-lemma NOTb_false : NOTb false = true := by unfold NOTb XORb gate Energy bit; decide
-lemma NOTb_true  : NOTb true  = false := by unfold NOTb XORb gate Energy bit; decide
+lemma NOTb_false : NOTb false = true := by
+  unfold NOTb XORb gate Energy bit; decide
+lemma NOTb_true  : NOTb true  = false := by
+  unfold NOTb XORb gate Energy bit; decide
 
 ------------------------------------------------------------
 -- 6. 抽象能量模型
@@ -92,12 +106,15 @@ def XORfn : BoolFn := XORb
 def ANDfn : BoolFn := ANDb
 def ORfn  : BoolFn := ORb
 
+/-- 模型 `m` 实现布尔函数 `f`：对所有输入 a,b，门的输出等于 f 的输出。 -/
 def implements (m : EnergyModel) (f : BoolFn) : Prop :=
   ∀ a b, gate m.lam m.kap m.tau a b = f a b
 
+/-- 在点 (a,b) 处的能量与阈值的距离。 -/
 def marginPoint (m : EnergyModel) (a b : Bool) : Nat :=
   Int.natAbs (Energy m.lam m.kap a b - m.tau)
 
+/-- 模型的最小能量裕度：4 个输入点上距离的最小值。 -/
 def marginOf (m : EnergyModel) : Nat :=
   let m00 := marginPoint m false false
   let m01 := marginPoint m false true
@@ -115,7 +132,62 @@ lemma margin_OR : marginOf ORmodel = 7 :=
   by simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
 
 ------------------------------------------------------------
--- 7. Residual Computing：寄存器机
+-- 7. “实现”的存在性与唯一性
+------------------------------------------------------------
+
+/-- 把能量模型对应的门视为一个 BoolFn。 -/
+def gateFn (m : EnergyModel) : BoolFn :=
+  fun a b => gate m.lam m.kap m.tau a b
+
+/-- 任意模型都“实现”自己的 gateFn（按定义）。 -/
+lemma implements_gateFn (m : EnergyModel) : implements m (gateFn m) := by
+  intro a b
+  rfl
+
+/-- 若同一个模型 `m` 同时实现 `f` 和 `g`，则二者必然相等。 -/
+lemma implements_unique (m : EnergyModel) {f g : BoolFn}
+  (hf : implements m f) (hg : implements m g) : f = g := by
+  funext a b
+  have hf' := hf a b  -- gate m.lam m.kap m.tau a b = f a b
+  have hg' := hg a b  -- gate m.lam m.kap m.tau a b = g a b
+  -- 证明 f a b = g a b，过渡到 gate 的值
+  exact by
+    trans gate m.lam m.kap m.tau a b
+    · exact hf'.symm
+    · exact hg'
+
+/-- XORmodel 实现 XORfn。 -/
+lemma XOR_implements : implements XORmodel XORfn := by
+  intro a b
+  rfl
+
+/-- ANDmodel 实现 ANDfn。 -/
+lemma AND_implements : implements ANDmodel ANDfn := by
+  intro a b
+  rfl
+
+/-- ORmodel 实现 ORfn。 -/
+lemma OR_implements : implements ORmodel ORfn := by
+  intro a b
+  rfl
+
+/-- 对于 XORmodel，任何被该模型实现的 BoolFn 都必然等于 XORfn。 -/
+lemma XOR_implements_unique (f : BoolFn) (hf : implements XORmodel f) :
+  f = XORfn :=
+  implements_unique XORmodel hf XOR_implements
+
+/-- 对于 ANDmodel，任何被该模型实现的 BoolFn 都必然等于 ANDfn。 -/
+lemma AND_implements_unique (f : BoolFn) (hf : implements ANDmodel f) :
+  f = ANDfn :=
+  implements_unique ANDmodel hf AND_implements
+
+/-- 对于 ORmodel，任何被该模型实现的 BoolFn 都必然等于 ORfn。 -/
+lemma OR_implements_unique (f : BoolFn) (hf : implements ORmodel f) :
+  f = ORfn :=
+  implements_unique ORmodel hf OR_implements
+
+------------------------------------------------------------
+-- 8. Residual Computing：寄存器机
 ------------------------------------------------------------
 
 inductive Reg where
@@ -166,7 +238,7 @@ def run (prog : List Instr) (steps : Nat) (s : State) : State :=
   Nat.recOn steps s (fun _ st => step prog st)
 
 ------------------------------------------------------------
--- 8. 示例程序：NOT r0
+-- 9. 示例程序：NOT r0
 ------------------------------------------------------------
 
 def prog_not_r0 : List Instr := [Instr.not Reg.r0]
@@ -176,3 +248,4 @@ lemma run_not_r0 :
   simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
 
 end Residual
+
