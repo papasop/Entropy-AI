@@ -1,150 +1,110 @@
 import Mathlib
 noncomputable section
 open Int
-
 namespace Residual
 set_option autoImplicit false
-
 ------------------------------------------------------------
 -- 1. Bool → Int
 ------------------------------------------------------------
-
 def bit (b : Bool) : Int := if b then 1 else 0
-
 @[simp] lemma bit_false : bit false = 0 := rfl
-@[simp] lemma bit_true  : bit true  = 1 := rfl
-
+@[simp] lemma bit_true : bit true = 1 := rfl
 ------------------------------------------------------------
 -- 2. 能量函数
 ------------------------------------------------------------
-
 def Energy (lam kap : Int) (a b : Bool) : Int :=
   abs (lam * (bit a + bit b) + kap * (bit a * bit b))
-
 ------------------------------------------------------------
 -- 3. 门函数
 ------------------------------------------------------------
-
 def gate (lam kap tau : Int) (a b : Bool) : Bool :=
   decide (tau < Energy lam kap a b)
-
 ------------------------------------------------------------
 -- 4. XOR / AND / OR / NOT
 ------------------------------------------------------------
-
 def lamXOR : Int := 20
 def kapXOR : Int := -30
 def tauXOR : Int := 15
-
 def lamAND : Int := 10
 def kapAND : Int := 20
 def tauAND : Int := 15
-
-def lamOR  : Int := 15
-def kapOR  : Int := 0
-def tauOR  : Int := 7
-
+def lamOR : Int := 15
+def kapOR : Int := 0
+def tauOR : Int := 7
 def XORb (a b : Bool) : Bool := gate lamXOR kapXOR tauXOR a b
 def ANDb (a b : Bool) : Bool := gate lamAND kapAND tauAND a b
-def ORb  (a b : Bool) : Bool := gate lamOR  kapOR  tauOR  a b
-
+def ORb (a b : Bool) : Bool := gate lamOR kapOR tauOR a b
 def NOTb (a : Bool) : Bool := XORb a true
-
 ------------------------------------------------------------
 -- 5. 真值表（自动由 decide 完成）
 ------------------------------------------------------------
-
 lemma XORb_ff : XORb false false = false := by unfold XORb gate Energy bit; decide
-lemma XORb_ft : XORb false true  = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tf : XORb true  false = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tt : XORb true  true  = false := by unfold XORb gate Energy bit; decide
-
+lemma XORb_ft : XORb false true = true := by unfold XORb gate Energy bit; decide
+lemma XORb_tf : XORb true false = true := by unfold XORb gate Energy bit; decide
+lemma XORb_tt : XORb true true = false := by unfold XORb gate Energy bit; decide
 lemma ANDb_ff : ANDb false false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_ft : ANDb false true  = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tf : ANDb true  false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tt : ANDb true  true  = true  := by unfold ANDb gate Energy bit; decide
-
+lemma ANDb_ft : ANDb false true = false := by unfold ANDb gate Energy bit; decide
+lemma ANDb_tf : ANDb true false = false := by unfold ANDb gate Energy bit; decide
+lemma ANDb_tt : ANDb true true = true := by unfold ANDb gate Energy bit; decide
 lemma ORb_ff : ORb false false = false := by unfold ORb gate Energy bit; decide
-lemma ORb_ft : ORb false true  = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tf : ORb true  false = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tt : ORb true  true  = true  := by unfold ORb gate Energy bit; decide
-
+lemma ORb_ft : ORb false true = true := by unfold ORb gate Energy bit; decide
+lemma ORb_tf : ORb true false = true := by unfold ORb gate Energy bit; decide
+lemma ORb_tt : ORb true true = true := by unfold ORb gate Energy bit; decide
 lemma NOTb_false : NOTb false = true := by unfold NOTb XORb gate Energy bit; decide
-lemma NOTb_true  : NOTb true  = false := by unfold NOTb XORb gate Energy bit; decide
-
+lemma NOTb_true : NOTb true = false := by unfold NOTb XORb gate Energy bit; decide
 ------------------------------------------------------------
 -- 6. 抽象能量模型
 ------------------------------------------------------------
-
 structure EnergyModel where
   lam : Int
   kap : Int
   tau : Int
 deriving Repr, DecidableEq
-
 def XORmodel : EnergyModel := { lam := lamXOR, kap := kapXOR, tau := tauXOR }
 def ANDmodel : EnergyModel := { lam := lamAND, kap := kapAND, tau := tauAND }
-def ORmodel  : EnergyModel := { lam := lamOR,  kap := kapOR,  tau := tauOR }
-
+def ORmodel : EnergyModel := { lam := lamOR, kap := kapOR, tau := tauOR }
 def BoolFn := Bool → Bool → Bool
-
 def XORfn : BoolFn := XORb
 def ANDfn : BoolFn := ANDb
-def ORfn  : BoolFn := ORb
-
+def ORfn : BoolFn := ORb
 def implements (m : EnergyModel) (f : BoolFn) : Prop :=
   ∀ a b, gate m.lam m.kap m.tau a b = f a b
-
 def marginPoint (m : EnergyModel) (a b : Bool) : Nat :=
   Int.natAbs (Energy m.lam m.kap a b - m.tau)
-
 def marginOf (m : EnergyModel) : Nat :=
   let m00 := marginPoint m false false
   let m01 := marginPoint m false true
-  let m10 := marginPoint m true  false
-  let m11 := marginPoint m true  true
+  let m10 := marginPoint m true false
+  let m11 := marginPoint m true true
   Nat.min (Nat.min m00 m01) (Nat.min m10 m11)
-
 lemma margin_XOR : marginOf XORmodel = 5 :=
   by simp [marginOf, marginPoint, XORmodel, lamXOR, kapXOR, tauXOR, Energy]
-
 lemma margin_AND : marginOf ANDmodel = 5 :=
   by simp [marginOf, marginPoint, ANDmodel, lamAND, kapAND, tauAND, Energy]
-
 lemma margin_OR : marginOf ORmodel = 7 :=
   by simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
-
 ------------------------------------------------------------
 -- 7. Residual Computing：寄存器机
 ------------------------------------------------------------
-
 inductive Reg where
   | r0 | r1 | r2 | r3
 deriving DecidableEq, Repr
-
 def RegFile := Reg → Bool
-
 def initRegs : RegFile := fun _ => false
-
 def writeReg (r : Reg) (v : Bool) (rf : RegFile) : RegFile :=
   fun r' => if r' = r then v else rf r'
-
 inductive Instr where
   | xor (dst src : Reg)
   | and (dst src : Reg)
-  | or  (dst src : Reg)
+  | or (dst src : Reg)
   | not (dst : Reg)
   | halt
 deriving Repr
-
 structure State where
   regs : RegFile
-  pc   : Nat
-
+  pc : Nat
 def initState : State := { regs := initRegs, pc := 0 }
-
 def getInstr (prog : List Instr) (pc : Nat) : Option Instr := prog[pc]?
-
 def step (prog : List Instr) (s : State) : State :=
   match getInstr prog s.pc with
   | none => s
@@ -155,25 +115,20 @@ def step (prog : List Instr) (s : State) : State :=
   | some (Instr.and d x) =>
       let v := ANDb (s.regs d) (s.regs x)
       { regs := writeReg d v s.regs, pc := s.pc + 1 }
-  | some (Instr.or d x)  =>
+  | some (Instr.or d x) =>
       let v := ORb (s.regs d) (s.regs x)
       { regs := writeReg d v s.regs, pc := s.pc + 1 }
   | some (Instr.not d) =>
       let v := NOTb (s.regs d)
       { regs := writeReg d v s.regs, pc := s.pc + 1 }
-
 def run (prog : List Instr) (steps : Nat) (s : State) : State :=
   Nat.recOn steps s (fun _ st => step prog st)
-
 ------------------------------------------------------------
 -- 8. 示例程序：NOT r0
 ------------------------------------------------------------
-
 def prog_not_r0 : List Instr := [Instr.not Reg.r0]
-
 lemma run_not_r0 :
   (run prog_not_r0 1 initState).regs Reg.r0 = true := by
-  simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
-
+  unfold run prog_not_r0 initState initRegs step getInstr writeReg NOTb XORb gate Energy bit
+  decide
 end Residual
-
