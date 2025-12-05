@@ -4,6 +4,18 @@ open Int
 
 namespace Residual
 set_option autoImplicit false
+set_option linter.unusedVariables false
+open Classical
+
+------------------------------------------------------------
+-- 0. BoolFn 的可判等
+------------------------------------------------------------
+
+/-- 二元布尔函数类型。 -/
+def BoolFn := Bool → Bool → Bool
+
+/-- 在 classical 公理下，任意类型都有可判等实例。 -/
+instance : DecidableEq BoolFn := Classical.decEq _
 
 ------------------------------------------------------------
 -- 1. Bool → Int
@@ -78,7 +90,7 @@ lemma ORb_ft : ORb false true  = true  := by
   unfold ORb gate Energy bit; decide
 lemma ORb_tf : ORb true  false = true  := by
   unfold ORb gate Energy bit; decide
-lemma ORb_tt : ORb true  true  = true  := by
+lemma ORb_tt : ORb true  true  = true := by
   unfold ORb gate Energy bit; decide
 
 lemma NOTb_false : NOTb false = true := by
@@ -99,12 +111,6 @@ deriving Repr, DecidableEq
 def XORmodel : EnergyModel := { lam := lamXOR, kap := kapXOR, tau := tauXOR }
 def ANDmodel : EnergyModel := { lam := lamAND, kap := kapAND, tau := tauAND }
 def ORmodel  : EnergyModel := { lam := lamOR,  kap := kapOR,  tau := tauOR }
-
-def BoolFn := Bool → Bool → Bool
-
-def XORfn : BoolFn := XORb
-def ANDfn : BoolFn := ANDb
-def ORfn  : BoolFn := ORb
 
 /-- 模型 `m` 实现布尔函数 `f`：对所有输入 a,b，门的输出等于 f 的输出。 -/
 def implements (m : EnergyModel) (f : BoolFn) : Prop :=
@@ -148,24 +154,25 @@ lemma implements_gateFn (m : EnergyModel) : implements m (gateFn m) := by
 lemma implements_unique (m : EnergyModel) {f g : BoolFn}
   (hf : implements m f) (hg : implements m g) : f = g := by
   funext a b
-  have hf' := hf a b  -- gate ... = f a b
-  have hg' := hg a b  -- gate ... = g a b
-  -- 两边都等于 gate m.lam m.kap m.tau a b
+  have hf' := hf a b
+  have hg' := hg a b
   calc
     f a b = gate m.lam m.kap m.tau a b := by simpa using hf'.symm
     _     = g a b := hg'
 
-/-- XORmodel 实现 XORfn。 -/
+/-- 用能量门定义的 XOR/AND/OR 函数别名。 -/
+def XORfn : BoolFn := XORb
+def ANDfn : BoolFn := ANDb
+def ORfn  : BoolFn := ORb
+
 lemma XOR_implements : implements XORmodel XORfn := by
   intro a b
   rfl
 
-/-- ANDmodel 实现 ANDfn。 -/
 lemma AND_implements : implements ANDmodel ANDfn := by
   intro a b
   rfl
 
-/-- ORmodel 实现 ORfn。 -/
 lemma OR_implements : implements ORmodel ORfn := by
   intro a b
   rfl
@@ -184,6 +191,62 @@ lemma AND_implements_unique (f : BoolFn) (hf : implements ANDmodel f) :
 lemma OR_implements_unique (f : BoolFn) (hf : implements ORmodel f) :
   f = ORfn :=
   implements_unique ORmodel hf OR_implements
+
+------------------------------------------------------------
+-- 7bis. 极简 cost 与离散动态：收敛到 gateFn
+------------------------------------------------------------
+
+/-- 一个极简的“能量代价”：在 gateFn 处为 0，其它函数为 1。 -/
+def energyCost (m : EnergyModel) (f : BoolFn) : Nat :=
+  if f = gateFn m then 0 else 1
+
+/-- cost 为 0 当且仅当 f = gateFn m（唯一极小值）。 -/
+lemma energyCost_zero_iff_eq_gate (m : EnergyModel) (f : BoolFn) :
+  energyCost m f = 0 ↔ f = gateFn m := by
+  unfold energyCost
+  by_cases h : f = gateFn m
+  · simp [h]
+  · simp [h]
+
+/-- 只要 f ≠ gateFn，代价就是 1，因此严格大于 0。 -/
+lemma energyCost_pos_if_ne (m : EnergyModel) (f : BoolFn) (h : f ≠ gateFn m) :
+  0 < energyCost m f := by
+  unfold energyCost
+  simp [h]
+
+/-- 一步离散动态：直接把任何 BoolFn 映射到其能量模型对应的 gateFn。 -/
+def stepDyn (m : EnergyModel) (f : BoolFn) : BoolFn :=
+  gateFn m
+
+/-- gateFn 在动态下是不动点。 -/
+lemma stepDyn_fixpoint (m : EnergyModel) :
+  stepDyn m (gateFn m) = gateFn m := rfl
+
+/-- 只要还没到 gateFn，这个一步动态会把 cost 从 1 降为 0。 -/
+lemma stepDyn_decreases_cost (m : EnergyModel) (f : BoolFn) (h : f ≠ gateFn m) :
+  energyCost m (stepDyn m f) < energyCost m f := by
+  unfold stepDyn energyCost
+  simp [h]
+
+/-- 多步迭代的离散动态：iterDyn m n f 表示连续做 n 步 stepDyn。 -/
+def iterDyn (m : EnergyModel) : Nat → BoolFn → BoolFn
+  | 0,     f => f
+  | n + 1, f => stepDyn m (iterDyn m n f)
+
+/-- 证明：做 n+1 步，一定已经到 gateFn。 -/
+lemma iterDyn_succ (m : EnergyModel) (n : Nat) (f : BoolFn) :
+  iterDyn m (n+1) f = gateFn m := by
+  cases n <;> simp [iterDyn, stepDyn]
+
+/-- 形式的“收敛定理”：对任何 n ≥ 1，iterDyn m n f = gateFn m。 -/
+lemma iterDyn_converges (m : EnergyModel) (f : BoolFn) :
+  ∀ n ≥ 1, iterDyn m n f = gateFn m := by
+  intro n hn
+  cases n with
+  | zero =>
+      cases hn
+  | succ k =>
+      simpa using (iterDyn_succ m k f)
 
 ------------------------------------------------------------
 -- 8. Residual Computing：寄存器机
@@ -233,8 +296,8 @@ def step (prog : List Instr) (s : State) : State :=
       let v := NOTb (s.regs d)
       { regs := writeReg d v s.regs, pc := s.pc + 1 }
 
-def run (prog : List Instr) (steps : Nat) (s : State) : State :=
-  Nat.recOn steps s (fun _ st => step prog st)
+def run (prog : List Instr) (steps : Nat) : State → State :=
+  fun s0 => Nat.recOn steps s0 (fun _ st => step prog st)
 
 ------------------------------------------------------------
 -- 9. 示例程序：NOT r0
@@ -247,4 +310,3 @@ lemma run_not_r0 :
   simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
 
 end Residual
-
