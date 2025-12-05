@@ -6,120 +6,76 @@ namespace Residual
 set_option autoImplicit false
 
 ------------------------------------------------------------
--- 1. Bool → Int （能量计算需要）
+-- 1. Bool → Int
 ------------------------------------------------------------
 
-/-- 把 Bool 映射到 0/1 的整型位 -/
-def bit (b : Bool) : Int :=
-  if b then 1 else 0
+def bit (b : Bool) : Int := if b then 1 else 0
 
 @[simp] lemma bit_false : bit false = 0 := rfl
 @[simp] lemma bit_true  : bit true  = 1 := rfl
 
 ------------------------------------------------------------
--- 2. 能量函数：
---    E(a,b) = | λ(a+b) + κ ab |
+-- 2. 能量函数
 ------------------------------------------------------------
 
-/-- 能量函数 E(a,b) = | λ(a+b) + κ ab | -/
 def Energy (lam kap : Int) (a b : Bool) : Int :=
   abs (lam * (bit a + bit b) + kap * (bit a * bit b))
 
 ------------------------------------------------------------
--- 3. 阈值门：
---    gate(lam,kap,tau)(a,b) = (E(a,b) > tau)
+-- 3. 门函数
 ------------------------------------------------------------
 
-/-- 阈值门：若 τ < E(a,b) 则输出 1（true），否则 0（false） -/
 def gate (lam kap tau : Int) (a b : Bool) : Bool :=
   decide (tau < Energy lam kap a b)
 
 ------------------------------------------------------------
--- 4. XOR / AND / OR / NOT 的能量参数
+-- 4. XOR / AND / OR / NOT
 ------------------------------------------------------------
 
-/-- XOR: (λ, κ, τ) = (20, -30, 15) -/
 def lamXOR : Int := 20
 def kapXOR : Int := -30
 def tauXOR : Int := 15
 
-/-- AND: (λ, κ, τ) = (10, 20, 15) -/
 def lamAND : Int := 10
 def kapAND : Int := 20
 def tauAND : Int := 15
 
-/-- OR:  (λ, κ, τ) = (15, 0, 7)
-    （这里用整数 7，对应你实数模型里 τ = 7.5 的离散版本，可以在论文里备注） -/
 def lamOR  : Int := 15
 def kapOR  : Int := 0
 def tauOR  : Int := 7
-
-------------------------------------------------------------
--- 5. 具体布尔门：XORb / ANDb / ORb / NOTb
-------------------------------------------------------------
 
 def XORb (a b : Bool) : Bool := gate lamXOR kapXOR tauXOR a b
 def ANDb (a b : Bool) : Bool := gate lamAND kapAND tauAND a b
 def ORb  (a b : Bool) : Bool := gate lamOR  kapOR  tauOR  a b
 
-/-- NOT(a) = XOR(a, true) -/
 def NOTb (a : Bool) : Bool := XORb a true
 
 ------------------------------------------------------------
--- 6. 真值表定理：全部由 `decide` 自动证明
+-- 5. 真值表（自动由 decide 完成）
 ------------------------------------------------------------
 
--- XOR 真值表
-lemma XORb_ff : XORb false false = false := by
-  unfold XORb gate Energy bit; decide
+lemma XORb_ff : XORb false false = false := by unfold XORb gate Energy bit; decide
+lemma XORb_ft : XORb false true  = true  := by unfold XORb gate Energy bit; decide
+lemma XORb_tf : XORb true  false = true  := by unfold XORb gate Energy bit; decide
+lemma XORb_tt : XORb true  true  = false := by unfold XORb gate Energy bit; decide
 
-lemma XORb_ft : XORb false true  = true := by
-  unfold XORb gate Energy bit; decide
+lemma ANDb_ff : ANDb false false = false := by unfold ANDb gate Energy bit; decide
+lemma ANDb_ft : ANDb false true  = false := by unfold ANDb gate Energy bit; decide
+lemma ANDb_tf : ANDb true  false = false := by unfold ANDb gate Energy bit; decide
+lemma ANDb_tt : ANDb true  true  = true  := by unfold ANDb gate Energy bit; decide
 
-lemma XORb_tf : XORb true  false = true := by
-  unfold XORb gate Energy bit; decide
+lemma ORb_ff : ORb false false = false := by unfold ORb gate Energy bit; decide
+lemma ORb_ft : ORb false true  = true  := by unfold ORb gate Energy bit; decide
+lemma ORb_tf : ORb true  false = true  := by unfold ORb gate Energy bit; decide
+lemma ORb_tt : ORb true  true  = true  := by unfold ORb gate Energy bit; decide
 
-lemma XORb_tt : XORb true  true  = false := by
-  unfold XORb gate Energy bit; decide
-
--- AND 真值表
-lemma ANDb_ff : ANDb false false = false := by
-  unfold ANDb gate Energy bit; decide
-
-lemma ANDb_ft : ANDb false true  = false := by
-  unfold ANDb gate Energy bit; decide
-
-lemma ANDb_tf : ANDb true  false = false := by
-  unfold ANDb gate Energy bit; decide
-
-lemma ANDb_tt : ANDb true  true  = true := by
-  unfold ANDb gate Energy bit; decide
-
--- OR 真值表
-lemma ORb_ff : ORb false false = false := by
-  unfold ORb gate Energy bit; decide
-
-lemma ORb_ft : ORb false true  = true := by
-  unfold ORb gate Energy bit; decide
-
-lemma ORb_tf : ORb true  false = true := by
-  unfold ORb gate Energy bit; decide
-
-lemma ORb_tt : ORb true  true  = true := by
-  unfold ORb gate Energy bit; decide
-
--- NOT = XOR(a, true)
-lemma NOTb_false : NOTb false = true := by
-  unfold NOTb XORb gate Energy bit; decide
-
-lemma NOTb_true  : NOTb true  = false := by
-  unfold NOTb XORb gate Energy bit; decide
+lemma NOTb_false : NOTb false = true := by unfold NOTb XORb gate Energy bit; decide
+lemma NOTb_true  : NOTb true  = false := by unfold NOTb XORb gate Energy bit; decide
 
 ------------------------------------------------------------
--- 7. 抽象能量模型 + 能量裕度（离散）
+-- 6. 抽象能量模型
 ------------------------------------------------------------
 
-/-- 一个门的能量参数模型 -/
 structure EnergyModel where
   lam : Int
   kap : Int
@@ -130,22 +86,18 @@ def XORmodel : EnergyModel := { lam := lamXOR, kap := kapXOR, tau := tauXOR }
 def ANDmodel : EnergyModel := { lam := lamAND, kap := kapAND, tau := tauAND }
 def ORmodel  : EnergyModel := { lam := lamOR,  kap := kapOR,  tau := tauOR }
 
-/-- 布尔函数类型（2 输入布尔函数） -/
-def BoolFn : Type := Bool → Bool → Bool
+def BoolFn := Bool → Bool → Bool
 
 def XORfn : BoolFn := XORb
 def ANDfn : BoolFn := ANDb
 def ORfn  : BoolFn := ORb
 
-/-- 一个模型实现了某个布尔函数：四个输入点都相等 -/
 def implements (m : EnergyModel) (f : BoolFn) : Prop :=
   ∀ a b, gate m.lam m.kap m.tau a b = f a b
 
-/-- 单点能量裕度：|E(a,b) − τ| 的 Nat 版 -/
 def marginPoint (m : EnergyModel) (a b : Bool) : Nat :=
   Int.natAbs (Energy m.lam m.kap a b - m.tau)
 
-/-- 总能量裕度：四个输入点的最小值 -/
 def marginOf (m : EnergyModel) : Nat :=
   let m00 := marginPoint m false false
   let m01 := marginPoint m false true
@@ -153,39 +105,30 @@ def marginOf (m : EnergyModel) : Nat :=
   let m11 := marginPoint m true  true
   Nat.min (Nat.min m00 m01) (Nat.min m10 m11)
 
-------------------------------------------------------------
--- 8. 自动计算三个门的 margin：XOR/AND = 5, OR = 7
-------------------------------------------------------------
+lemma margin_XOR : marginOf XORmodel = 5 :=
+  by simp [marginOf, marginPoint, XORmodel, lamXOR, kapXOR, tauXOR, Energy]
 
-lemma margin_XOR : marginOf XORmodel = 5 := by
-  simp [marginOf, marginPoint, XORmodel, lamXOR, kapXOR, tauXOR, Energy]
+lemma margin_AND : marginOf ANDmodel = 5 :=
+  by simp [marginOf, marginPoint, ANDmodel, lamAND, kapAND, tauAND, Energy]
 
-lemma margin_AND : marginOf ANDmodel = 5 := by
-  simp [marginOf, marginPoint, ANDmodel, lamAND, kapAND, tauAND, Energy]
-
-lemma margin_OR : marginOf ORmodel = 7 := by
-  simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
+lemma margin_OR : marginOf ORmodel = 7 :=
+  by simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
 
 ------------------------------------------------------------
--- 9. Residual Computing：4-bit 寄存器 + 指令集
+-- 7. Residual Computing：寄存器机
 ------------------------------------------------------------
 
-/-- 四个寄存器 r0–r3 -/
 inductive Reg where
   | r0 | r1 | r2 | r3
 deriving DecidableEq, Repr
 
-/-- 寄存器文件：每个 Reg 一个 Bool 值 -/
 def RegFile := Reg → Bool
 
-/-- 初始寄存器：全 0 -/
 def initRegs : RegFile := fun _ => false
 
-/-- 写寄存器 -/
 def writeReg (r : Reg) (v : Bool) (rf : RegFile) : RegFile :=
   fun r' => if r' = r then v else rf r'
 
-/-- 指令集：XOR/AND/OR/NOT + HALT -/
 inductive Instr where
   | xor (dst src : Reg)
   | and (dst src : Reg)
@@ -194,55 +137,42 @@ inductive Instr where
   | halt
 deriving Repr
 
-/-- 机器状态：寄存器 + 程序计数器 -/
 structure State where
   regs : RegFile
   pc   : Nat
 
-/-- 初始状态 -/
 def initState : State := { regs := initRegs, pc := 0 }
 
-/-- 从程序中取第 pc 条指令（使用新语法 a[pc]?，避免 List.get? 的 deprecated） -/
-def getInstr (prog : List Instr) (pc : Nat) : Option Instr :=
-  prog[pc]?
+def getInstr (prog : List Instr) (pc : Nat) : Option Instr := prog[pc]?
 
-/-- 单步执行 -/
 def step (prog : List Instr) (s : State) : State :=
   match getInstr prog s.pc with
   | none => s
   | some Instr.halt => s
   | some (Instr.xor d x) =>
       let v := XORb (s.regs d) (s.regs x)
-      let rs := writeReg d v s.regs
-      { regs := rs, pc := s.pc + 1 }
+      { regs := writeReg d v s.regs, pc := s.pc + 1 }
   | some (Instr.and d x) =>
       let v := ANDb (s.regs d) (s.regs x)
-      let rs := writeReg d v s.regs
-      { regs := rs, pc := s.pc + 1 }
+      { regs := writeReg d v s.regs, pc := s.pc + 1 }
   | some (Instr.or d x)  =>
       let v := ORb (s.regs d) (s.regs x)
-      let rs := writeReg d v s.regs
-      { regs := rs, pc := s.pc + 1 }
-  | some (Instr.not d)   =>
+      { regs := writeReg d v s.regs, pc := s.pc + 1 }
+  | some (Instr.not d) =>
       let v := NOTb (s.regs d)
-      let rs := writeReg d v s.regs
-      { regs := rs, pc := s.pc + 1 }
+      { regs := writeReg d v s.regs, pc := s.pc + 1 }
 
-/-- 运行 n 步程序 -/
 def run (prog : List Instr) (steps : Nat) (s : State) : State :=
   Nat.recOn steps s (fun _ st => step prog st)
 
 ------------------------------------------------------------
--- 10. 示例程序：对 r0 做 NOT
+-- 8. 示例程序：NOT r0
 ------------------------------------------------------------
 
-/-- 程序：单条指令 NOT r0 -/
 def prog_not_r0 : List Instr := [Instr.not Reg.r0]
 
-/-- 定理：在 initState 下运行 1 步，r0 变成 true -/
 lemma run_not_r0 :
   (run prog_not_r0 1 initState).regs Reg.r0 = true := by
-  -- 1 步展开 run ，就是一步 step
   simp [run, prog_not_r0, initState, initRegs, step, getInstr, writeReg, NOTb_false]
 
 end Residual
