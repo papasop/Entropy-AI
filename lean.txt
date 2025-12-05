@@ -10,71 +10,140 @@ set_option autoImplicit false
 -- 1. Bool → Int （energy 计算需要）
 ------------------------------------------------------------
 
+/-- 把 Bool 映射到 0/1 的整型位 -/
 def bit (b : Bool) : Int :=
   if b then 1 else 0
 
 ------------------------------------------------------------
--- 2. Energy function
+-- 2. 能量函数
 --    E(a,b) = | λ(a+b) + κ ab |
 ------------------------------------------------------------
 
+/-- 能量函数 E(a,b) = | λ(a+b) + κ ab | -/
 def Energy (lam kap : Int) (a b : Bool) : Int :=
   abs (lam * (bit a + bit b) + kap * (bit a * bit b))
 
 ------------------------------------------------------------
--- 3. Threshold gate
+-- 3. 阈值门：tau < E 则输出 true
 ------------------------------------------------------------
 
+/-- 阈值门：若 τ < E(a,b) 则输出 1（true），否则 0（false） -/
 def gate (lam kap tau : Int) (a b : Bool) : Bool :=
   decide (tau < Energy lam kap a b)
 
 ------------------------------------------------------------
--- 4. XOR / AND / OR / NOT parameters
+-- 4. XOR / AND / OR / NOT 的能量参数
 ------------------------------------------------------------
 
+/-- XOR: (λ, κ, τ) = (20, -30, 15) -/
 def lamXOR : Int := 20
 def kapXOR : Int := -30
 def tauXOR : Int := 15
 
+/-- AND: (λ, κ, τ) = (10, 20, 15) -/
 def lamAND : Int := 10
 def kapAND : Int := 20
 def tauAND : Int := 15
 
+/-- OR:  (λ, κ, τ) = (15, 0, 7)  (注意这里是 7，对应 τ = 7.5 在实数尺度下乘 2 的离散版可之后扩展) -/
 def lamOR  : Int := 15
 def kapOR  : Int := 0
 def tauOR  : Int := 7
 
 ------------------------------------------------------------
--- 5. Gates
+-- 5. 把参数打包成 EnergyModel，并定义门函数
 ------------------------------------------------------------
 
-def XORb (a b : Bool) : Bool := gate lamXOR kapXOR tauXOR a b
-def ANDb (a b : Bool) : Bool := gate lamAND kapAND tauAND a b
-def ORb  (a b : Bool) : Bool := gate lamOR  kapOR  tauOR  a b
+/-- 一个门的能量参数模型 -/
+structure EnergyModel where
+  lam : Int
+  kap : Int
+  tau : Int
+deriving Repr, DecidableEq
 
+/-- 给定模型 + 输入 (a,b)，得到布尔输出 -/
+def implements (m : EnergyModel) (a b : Bool) : Bool :=
+  gate m.lam m.kap m.tau a b
+
+/-- 具体的 XOR / AND / OR 模型 -/
+def XORmodel : EnergyModel := ⟨lamXOR, kapXOR, tauXOR⟩
+def ANDmodel : EnergyModel := ⟨lamAND, kapAND, tauAND⟩
+def ORmodel  : EnergyModel := ⟨lamOR,  kapOR,  tauOR⟩
+
+/-- 根据能量模型给出的布尔门 -/
+def XORb (a b : Bool) : Bool := implements XORmodel a b
+def ANDb (a b : Bool) : Bool := implements ANDmodel a b
+def ORb  (a b : Bool) : Bool := implements ORmodel  a b
+
+/-- NOT(a) = XOR(a, true) -/
 def NOTb (a : Bool) : Bool := XORb a true
 
 ------------------------------------------------------------
--- 6. Truth tables by decide
+-- 6. 真值表定理（全部由 decide 自动证明）
 ------------------------------------------------------------
 
-lemma XORb_ff : XORb false false = false := by unfold XORb gate Energy bit; decide
-lemma XORb_ft : XORb false true  = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tf : XORb true  false = true  := by unfold XORb gate Energy bit; decide
-lemma XORb_tt : XORb true  true  = false := by unfold XORb gate Energy bit; decide
+/-! ### XOR 真值表 -/
 
-lemma ANDb_ff : ANDb false false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_ft : ANDb false true  = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tf : ANDb true  false = false := by unfold ANDb gate Energy bit; decide
-lemma ANDb_tt : ANDb true  true  = true  := by unfold ANDb gate Energy bit; decide
+lemma XORb_ff : XORb false false = false := by
+  unfold XORb implements XORmodel gate Energy bit
+  decide
 
-lemma ORb_ff : ORb false false = false := by unfold ORb gate Energy bit; decide
-lemma ORb_ft : ORb false true  = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tf : ORb true  false = true  := by unfold ORb gate Energy bit; decide
-lemma ORb_tt : ORb true  true  = true  := by unfold ORb gate Energy bit; decide
+lemma XORb_ft : XORb false true = true := by
+  unfold XORb implements XORmodel gate Energy bit
+  decide
 
-lemma NOTb_false : NOTb false = true := by unfold NOTb XORb gate Energy bit; decide
-lemma NOTb_true  : NOTb true  = false := by unfold NOTb XORb gate Energy bit; decide
+lemma XORb_tf : XORb true false = true := by
+  unfold XORb implements XORmodel gate Energy bit
+  decide
+
+lemma XORb_tt : XORb true true = false := by
+  unfold XORb implements XORmodel gate Energy bit
+  decide
+
+/-! ### AND 真值表 -/
+
+lemma ANDb_ff : ANDb false false = false := by
+  unfold ANDb implements ANDmodel gate Energy bit
+  decide
+
+lemma ANDb_ft : ANDb false true = false := by
+  unfold ANDb implements ANDmodel gate Energy bit
+  decide
+
+lemma ANDb_tf : ANDb true false = false := by
+  unfold ANDb implements ANDmodel gate Energy bit
+  decide
+
+lemma ANDb_tt : ANDb true true = true := by
+  unfold ANDb implements ANDmodel gate Energy bit
+  decide
+
+/-! ### OR 真值表 -/
+
+lemma ORb_ff : ORb false false = false := by
+  unfold ORb implements ORmodel gate Energy bit
+  decide
+
+lemma ORb_ft : ORb false true = true := by
+  unfold ORb implements ORmodel gate Energy bit
+  decide
+
+lemma ORb_tf : ORb true false = true := by
+  unfold ORb implements ORmodel gate Energy bit
+  decide
+
+lemma ORb_tt : ORb true true = true := by
+  unfold ORb implements ORmodel gate Energy bit
+  decide
+
+/-! ### NOT = XOR(a,1) 的两点定理 -/
+
+lemma NOTb_false : NOTb false = true := by
+  unfold NOTb XORb implements XORmodel gate Energy bit
+  decide
+
+lemma NOTb_true  : NOTb true = false := by
+  unfold NOTb XORb implements XORmodel gate Energy bit
+  decide
 
 end Residual
-
