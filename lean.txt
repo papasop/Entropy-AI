@@ -132,7 +132,7 @@ lemma margin_OR : marginOf ORmodel = 7 :=
   by simp [marginOf, marginPoint, ORmodel, lamOR, kapOR, tauOR, Energy]
 
 ------------------------------------------------------------
--- 7. “实现”的存在性与唯一性
+-- 7. “实现”的存在性与唯一性（函数层面）
 ------------------------------------------------------------
 
 /-- 把能量模型对应的门视为一个 BoolFn。 -/
@@ -148,13 +148,12 @@ lemma implements_gateFn (m : EnergyModel) : implements m (gateFn m) := by
 lemma implements_unique (m : EnergyModel) {f g : BoolFn}
   (hf : implements m f) (hg : implements m g) : f = g := by
   funext a b
-  have hf' := hf a b  -- gate m.lam m.kap m.tau a b = f a b
-  have hg' := hg a b  -- gate m.lam m.kap m.tau a b = g a b
-  -- 证明 f a b = g a b，过渡到 gate 的值
-  exact by
-    trans gate m.lam m.kap m.tau a b
-    · exact hf'.symm
-    · exact hg'
+  have hf' := hf a b  -- gate ... = f a b
+  have hg' := hg a b  -- gate ... = g a b
+  -- 两边都等于 gate m.lam m.kap m.tau a b
+  calc
+    f a b = gate m.lam m.kap m.tau a b := by simpa using hf'.symm
+    _     = g a b := hg'
 
 /-- XORmodel 实现 XORfn。 -/
 lemma XOR_implements : implements XORmodel XORfn := by
